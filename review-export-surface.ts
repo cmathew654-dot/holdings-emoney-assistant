@@ -40,6 +40,22 @@ export const MANUAL_REVIEW_REQUIRED_CODES = new Set<Issue['code']>([
   'UNMAPPED_ACCOUNT_TYPE',
 ]);
 
+
+function toFriendlyIssueLabel(code: string): string {
+  switch (code) {
+    case 'DUPLICATE_HOLDING':
+      return 'possible duplicate holding';
+    case 'INVALID_FORMAT':
+      return 'invalid field format';
+    case 'UNMAPPED_ACCOUNT_TYPE':
+      return 'unmapped account type';
+    case 'MISSING_LOOKUP_KEY':
+      return 'missing ticker/CUSIP lookup key';
+    default:
+      return code.toLowerCase().replace(/_/g, ' ');
+  }
+}
+
 function isBlockingIssue(issue: Issue): boolean {
   return Boolean(issue.blocking) || issue.severity === 'error';
 }
@@ -53,21 +69,21 @@ export function getHoldingEligibility(
 
   const hasLookupKey = Boolean((holding.ticker ?? '').trim() || (holding.cusip ?? '').trim());
   if (!hasLookupKey) {
-    reasons.push('missing ticker/cusip');
+    reasons.push('blocked: missing ticker/CUSIP lookup key');
     blockedIssueCodes.push('MISSING_LOOKUP_KEY');
   }
 
   const blockingIssues = holding.issues.filter(isBlockingIssue);
   if (blockingIssues.length) {
     blockingIssues.forEach((i) => blockedIssueCodes.push(i.code));
-    reasons.push(`blocking issues: ${blockingIssues.map((i) => i.code).join(', ')}`);
+    reasons.push(`blocked: ${blockingIssues.map((i) => toFriendlyIssueLabel(i.code)).join(', ')}`);
   }
 
   const manualReviewIssues = holding.issues.filter((i) => MANUAL_REVIEW_REQUIRED_CODES.has(i.code));
   const requiresManualOverride = manualReviewIssues.length > 0;
   if (requiresManualOverride && !opts?.allowManualOverride) {
     manualReviewIssues.forEach((i) => blockedIssueCodes.push(i.code));
-    reasons.push(`manual review required: ${manualReviewIssues.map((i) => i.code).join(', ')}`);
+    reasons.push(`manual review required before export: ${manualReviewIssues.map((i) => toFriendlyIssueLabel(i.code)).join(', ')}`);
   }
 
   return {
@@ -208,11 +224,11 @@ export function renderReviewExportSurface(
     overrideInput.type = 'checkbox';
     overrideInput.style.marginRight = '6px';
     overrideLabel.appendChild(overrideInput);
-    overrideLabel.appendChild(document.createTextNode('Allow manual-review override codes in export'));
+    overrideLabel.appendChild(document.createTextNode('Override safety gate for manual-review-required codes (use carefully)'));
     accountWrap.appendChild(overrideLabel);
 
     const overrideState = document.createElement('p');
-    overrideState.textContent = 'Override: OFF (default safe mode)';
+    overrideState.textContent = 'Override: OFF (recommended). Blocked holdings stay excluded.';
     accountWrap.appendChild(overrideState);
 
     const preflight = document.createElement('p');
@@ -223,8 +239,10 @@ export function renderReviewExportSurface(
       const blockedReasonText = Object.keys(summary.blockedReasonsByCode).length
         ? JSON.stringify(summary.blockedReasonsByCode)
         : '{}';
-      preflight.textContent = `Preflight — eligible: ${summary.eligibleCount}, blocked: ${summary.blockedCount}, warning-bearing: ${summary.warningBearingCount}, blocked reasons: ${blockedReasonText}`;
-      overrideState.textContent = `Override: ${overrideInput.checked ? 'ON' : 'OFF (default safe mode)'}`;
+      preflight.textContent = `Preflight summary: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked, ${summary.warningBearingCount} warning-bearing holdings. Blocked reason counts: ${blockedReasonText}`;
+      overrideState.textContent = overrideInput.checked
+        ? 'Override: ON. Manual-review-required holdings may be exported.'
+        : 'Override: OFF (recommended). Blocked holdings stay excluded.';
     };
 
     overrideInput.onchange = () => {
@@ -247,7 +265,7 @@ export function renderReviewExportSurface(
       rowDisplay.forEach(({ holding, eligible, blockedWhy }) => {
         const tr = document.createElement('tr');
         tr.innerHTML = [
-          `<td>${eligible ? 'yes' : 'blocked'}</td>`,
+          `<td>${eligible ? 'Eligible ✅' : 'Blocked ⛔'}</td>`,
           `<td>${holding.ticker ?? ''}</td>`,
           `<td>${holding.cusip ?? ''}</td>`,
           `<td>${holding.units ?? ''}</td>`,
@@ -262,7 +280,7 @@ export function renderReviewExportSurface(
     accountWrap.appendChild(table);
 
     const exportBtn = document.createElement('button');
-    exportBtn.textContent = 'Export assistant payload for account';
+    exportBtn.textContent = 'Export assistant payload (eligible holdings only)';
     exportBtn.onclick = () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
