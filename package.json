@@ -1,0 +1,8 @@
+{
+  "name": "holdings-parser-local",
+  "private": true,
+  "scripts": {
+    "test": "tsc -p tsconfig.test.json && node --test holdings-csv-parser.test.cjs review-export-surface.test.cjs emoney-browser-helper.test.cjs",
+    "typecheck": "tsc --noEmit --lib es2019 holdings-schema.ts holdings-csv-parser.ts"
+  }
+}
