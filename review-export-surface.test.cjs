@@ -173,7 +173,10 @@ test('buildEmoneyDevtoolsSnippet emits eligible rows as paste-ready eMoney fill 
   assert.match(snippet, /units": "10"/);
   assert.match(snippet, /costBasis": "1450"/);
   assert.match(snippet, /marketValue": "3000"/);
-  assert.match(snippet, /Reference market value/);
+  assert.match(snippet, /window\.confirm/);
+  assert.match(snippet, /correct eMoney Holdings page for account 123/);
+  assert.match(snippet, /console\.table\(results\)/);
+  assert.match(snippet, /Market value not filled; eMoney calculates it/);
   assert.doesNotMatch(snippet, /MarketValueTextBox/);
   assert.doesNotMatch(snippet, /setValue\(fields\.marketValue, row\.marketValue\)/);
   assert.doesNotThrow(() => new Function(snippet));

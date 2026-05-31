@@ -29,7 +29,7 @@ Use override only after manual validation of identity/data correctness.
 ## Spreadsheet / CSV prep
 1. Open the spreadsheet in Excel.
 2. Use **File → Save As → CSV UTF-8 (Comma delimited) (*.csv)**.
-3. Load that CSV in the local MVP.
+3. Run `npm run start:demo` and load that CSV with **Choose CSV File**.
 4. Do not use `Last Updated` as acquisition date; it is statement/as-of context only.
 5. Expect `$CASH$` rows and zero-price/nonzero-value rows to be blocked by default.
 

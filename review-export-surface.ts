@@ -1,5 +1,5 @@
-import { AccountRecord, HoldingRecord, HoldingsIngestionFile, Issue } from './holdings-schema';
-import { BrowserHoldingInput } from './emoney-browser-helper';
+import type { AccountRecord, HoldingRecord, HoldingsIngestionFile, Issue } from './holdings-schema';
+import type { BrowserHoldingInput } from './emoney-browser-helper';
 
 /**
  * Minimal review/export surface for internal local-only workflow.
@@ -180,6 +180,12 @@ export function buildEmoneyDevtoolsSnippet(payload: AssistantAccountPayload): st
 (async () => {
   const rows = ${JSON.stringify(rows, null, 2)};
   const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const confirmed = window.confirm('Confirm you are on the correct eMoney Holdings page for account ${payload.accountNumber}. This will fill eligible rows but will NOT click Save.');
+  if (!confirmed) {
+    console.warn('eMoney fill cancelled before any row changes.');
+    return;
+  }
+  const results = [];
 
   function visible(el) {
     const rect = el.getBoundingClientRect();
@@ -249,26 +255,47 @@ export function buildEmoneyDevtoolsSnippet(payload: AssistantAccountPayload): st
 
   for (const [index, row] of rows.entries()) {
     console.log(\`Adding row ${'${index + 1}'}/${'${rows.length}'}\`, row);
-    await clickAddHolding();
-    await sleep(500);
+    try {
+      await clickAddHolding();
+      await sleep(500);
 
-    const tickerEl = newestTickerField();
-    if (!tickerEl) throw new Error('Could not find the newest Ticker field. Stop and enter manually.');
+      const tickerEl = newestTickerField();
+      if (!tickerEl) throw new Error('Could not find the newest Ticker field. Stop and enter manually.');
 
-    const fields = rowFieldsFromTicker(tickerEl);
-    if (!fields.units) throw new Error('Could not locate Units field by discovered row offset. Stop and enter manually.');
-    if (!fields.costBasis) throw new Error('Could not locate Cost Basis field by discovered row offset. Stop and enter manually.');
+      const fields = rowFieldsFromTicker(tickerEl);
+      if (!fields.units) throw new Error('Could not locate Units field by discovered row offset. Stop and enter manually.');
+      if (!fields.costBasis) throw new Error('Could not locate Cost Basis field by discovered row offset. Stop and enter manually.');
 
-    setValue(fields.ticker, row.ticker);
-    await sleep(1200); // let eMoney resolve description / asset class / sector from ticker
-    setValue(fields.units, row.units);
-    setValue(fields.costBasis, row.costBasis);
+      setValue(fields.ticker, row.ticker);
+      await sleep(1200); // let eMoney resolve description / asset class / sector from ticker
+      setValue(fields.units, row.units);
+      setValue(fields.costBasis, row.costBasis);
 
-    if (row.marketValue !== '') {
-      console.log(\`Reference market value for ${'${row.ticker}'}: ${'${row.marketValue}'} (not filled; eMoney calculates value).\`);
+      results.push({
+        row: index + 1,
+        ticker: row.ticker,
+        units: row.units,
+        costBasis: row.costBasis,
+        referenceMarketValue: row.marketValue || '(none)',
+        status: 'filled',
+        message: 'Ticker, units, and cost basis filled. Market value not filled; eMoney calculates it.',
+      });
+    } catch (err) {
+      results.push({
+        row: index + 1,
+        ticker: row.ticker,
+        units: row.units,
+        costBasis: row.costBasis,
+        referenceMarketValue: row.marketValue || '(none)',
+        status: 'failed',
+        message: err instanceof Error ? err.message : String(err),
+      });
+      console.error('Stopped on row failure. Review manually.', err);
+      break;
     }
   }
 
+  console.table(results);
   console.log('Done. Review every row visually. Save remains manual.');
 })();`;
 }
@@ -307,26 +334,44 @@ export function renderReviewExportSurface(
 ): void {
   root.innerHTML = '';
 
+  root.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+
   const title = document.createElement('h2');
-  title.textContent = 'Holdings Review / Export (Local-Only)';
+  title.textContent = '2. Review holdings and export eMoney snippet';
+  title.style.marginTop = '24px';
   root.appendChild(title);
+
+  const safetyBanner = document.createElement('div');
+  safetyBanner.textContent = 'Safety: blocked rows are excluded by default. The eMoney snippet never clicks Save; verify rows manually in eMoney.';
+  safetyBanner.style.border = '1px solid #f59e0b';
+  safetyBanner.style.background = '#fffbeb';
+  safetyBanner.style.padding = '10px';
+  safetyBanner.style.borderRadius = '8px';
+  safetyBanner.style.margin = '10px 0';
+  root.appendChild(safetyBanner);
 
   const fileSummary = document.createElement('p');
   fileSummary.textContent = `Accounts: ${ingestion.accounts.length} | File Issues: ${ingestion.issues.length}`;
   root.appendChild(fileSummary);
 
   const output = document.createElement('pre');
-  output.textContent = 'Assistant payload output will appear here...';
+  output.textContent = 'Output will appear here after you export JSON or copy an eMoney snippet.';
   output.style.whiteSpace = 'pre-wrap';
-  output.style.border = '1px solid #ccc';
-  output.style.padding = '8px';
+  output.style.border = '1px solid #cbd5e1';
+  output.style.background = '#f8fafc';
+  output.style.padding = '12px';
+  output.style.borderRadius = '8px';
+  output.style.maxHeight = '360px';
+  output.style.overflow = 'auto';
   root.appendChild(output);
 
   ingestion.accounts.forEach((account) => {
     const accountWrap = document.createElement('section');
-    accountWrap.style.margin = '12px 0';
-    accountWrap.style.padding = '8px';
-    accountWrap.style.border = '1px solid #ddd';
+    accountWrap.style.margin = '18px 0';
+    accountWrap.style.padding = '16px';
+    accountWrap.style.border = '1px solid #cbd5e1';
+    accountWrap.style.borderRadius = '10px';
+    accountWrap.style.background = '#ffffff';
 
     const header = document.createElement('h3');
     header.textContent = `${account.accountNumber} (${account.accountType})`;
@@ -359,6 +404,10 @@ export function renderReviewExportSurface(
         ? JSON.stringify(summary.blockedReasonsByCode)
         : '{}';
       preflight.textContent = `Preflight summary: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked, ${summary.warningBearingCount} warning-bearing holdings. Blocked reason counts: ${blockedReasonText}`;
+      preflight.style.padding = '10px';
+      preflight.style.borderRadius = '8px';
+      preflight.style.background = summary.blockedCount > 0 ? '#fff7ed' : '#f0fdf4';
+      preflight.style.border = summary.blockedCount > 0 ? '1px solid #fdba74' : '1px solid #86efac';
       overrideState.textContent = overrideInput.checked
         ? 'Override: ON. Manual-review-required holdings may be exported.'
         : 'Override: OFF (recommended). Blocked holdings stay excluded.';
@@ -371,6 +420,8 @@ export function renderReviewExportSurface(
 
     const table = document.createElement('table');
     table.style.width = '100%';
+    table.style.borderCollapse = 'collapse';
+    table.style.marginTop = '12px';
     table.border = '1';
 
     const thead = document.createElement('thead');
@@ -383,6 +434,7 @@ export function renderReviewExportSurface(
       const rowDisplay = getAccountRowDisplay(account, { allowManualOverride: overrideInput.checked });
       rowDisplay.forEach(({ holding, eligible, blockedWhy }) => {
         const tr = document.createElement('tr');
+        tr.style.background = eligible ? '#f0fdf4' : '#fef2f2';
         tr.innerHTML = [
           `<td>${eligible ? 'Eligible ✅' : 'Blocked ⛔'}</td>`,
           `<td>${holding.ticker ?? ''}</td>`,
@@ -400,29 +452,45 @@ export function renderReviewExportSurface(
     accountWrap.appendChild(table);
 
     const exportBtn = document.createElement('button');
-    exportBtn.textContent = 'Export assistant payload (eligible holdings only)';
+    exportBtn.textContent = 'Export JSON Payload';
+    exportBtn.style.marginTop = '10px';
     exportBtn.onclick = () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
       });
-      output.textContent = JSON.stringify(payload, null, 2);
+      output.textContent = `Exported JSON payload for ${payload.holdings.length} eligible holdings.\n\n${JSON.stringify(payload, null, 2)}`;
       opts?.onExport?.(payload);
     };
     accountWrap.appendChild(exportBtn);
 
     const snippetBtn = document.createElement('button');
-    snippetBtn.textContent = 'Copy eMoney DevTools snippet (eligible holdings only)';
+    snippetBtn.textContent = 'Copy eMoney Fill Snippet';
     snippetBtn.style.marginLeft = '8px';
     snippetBtn.onclick = () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
       });
       const snippet = buildEmoneyDevtoolsSnippet(payload);
-      output.textContent = snippet;
+      const summary = buildAccountPreflightSummary(account, {
+        allowManualOverride: overrideInput.checked,
+      });
+      const instructions = [
+        `Prepared eMoney snippet for ${payload.holdings.length} eligible holdings.`,
+        `Blocked holdings excluded: ${summary.blockedCount}.`,
+        'Next: open the correct eMoney Holdings page, paste this into DevTools Console, then review rows before manually saving.',
+        'Safety: this snippet never clicks Save.',
+      ].join('\n');
+      output.textContent = `${instructions}\n\n${snippet}`;
       if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(snippet).catch(() => {
-          // Some local-file/browser contexts block clipboard writes; output panel remains copyable.
-        });
+        navigator.clipboard.writeText(snippet)
+          .then(() => {
+            output.textContent = `Copied to clipboard.\n${output.textContent}`;
+          })
+          .catch(() => {
+            output.textContent = `Clipboard copy was blocked. Manually copy the snippet below.\n${output.textContent}`;
+          });
+      } else {
+        output.textContent = `Clipboard API unavailable. Manually copy the snippet below.\n${output.textContent}`;
       }
     };
     accountWrap.appendChild(snippetBtn);

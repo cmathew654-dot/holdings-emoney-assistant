@@ -54,6 +54,10 @@ Notes:
 - Row display + summary + export eligibility must remain synchronized.
 
 ## Commands
+- `npm run start:demo`
+  - Builds the local static demo and serves it at `http://localhost:8080/`.
+- `npm run build:demo`
+  - Builds `demo-dist/` without starting the server.
 - `npm test`
   - Type-checks test-targeted TS and runs parser/review/helper tests.
 - `npm run typecheck`
@@ -67,10 +71,10 @@ Notes:
 ## Known limitations / deferred items
 - Direct PDF ingestion is deferred.
 - Direct XLSX runtime ingestion is not required for the current demo path; convert spreadsheet output to CSV UTF-8 first.
-- UI is intentionally minimal (internal MVP).
+- UI has a simple local CSV file picker and review/export shell; styling is intentionally lightweight.
 - eMoney snippet uses the discovered WebForms row order for the current Holdings screen; verify on a safe/test account before real use.
 - Browser-helper tests use a lightweight fake DOM harness (not full browser E2E).
-- Packaging/distribution shell is minimal.
+- Packaging is a local static browser demo via `npm run start:demo`; no installer yet.
 
 ## Likely next engineering tasks
 1. Desktop verification pass of current CSV → snippet → eMoney MVP flow.
