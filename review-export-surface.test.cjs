@@ -117,6 +117,14 @@ test('override on => row display updates to eligible when only manual-review-req
   assert.equal(rows[0].blockedWhy, 'n/a');
 });
 
+test('row display preserves market value for operator review', () => {
+  const a = account([holding({ ticker: 'AAPL', marketValue: 3000 })]);
+  const rows = getAccountRowDisplay(a);
+  assert.equal(rows[0].marketValue, 3000);
+  assert.equal(rows[0].holding.marketValue, 3000);
+});
+
+
 test('summary/export and row display stay aligned when override changes', () => {
   const a = account([
     holding({ holdingId: 'acct-1-h-1', issues: [issue('DUPLICATE_HOLDING')] }),
@@ -164,6 +172,13 @@ test('buildEmoneyDevtoolsSnippet emits eligible rows as paste-ready eMoney fill 
   assert.match(snippet, /ticker": "AAPL"/);
   assert.match(snippet, /units": "10"/);
   assert.match(snippet, /costBasis": "1450"/);
+  assert.match(snippet, /marketValue": "3000"/);
+  assert.match(snippet, /window\.confirm/);
+  assert.match(snippet, /correct eMoney Holdings page for account 123/);
+  assert.match(snippet, /console\.table\(results\)/);
+  assert.match(snippet, /Market value not filled; eMoney calculates it/);
+  assert.doesNotMatch(snippet, /MarketValueTextBox/);
+  assert.doesNotMatch(snippet, /setValue\(fields\.marketValue, row\.marketValue\)/);
   assert.doesNotThrow(() => new Function(snippet));
   assert.doesNotMatch(snippet, /\$CASH\$/);
   assert.doesNotMatch(snippet, /"assetClass"|"sector"|fields\.assetClass|fields\.sector/);
