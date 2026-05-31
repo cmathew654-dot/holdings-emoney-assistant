@@ -1,11 +1,8 @@
 import type { AccountRecord, HoldingRecord, HoldingsIngestionFile, Issue } from './holdings-schema';
 import type { BrowserHoldingInput } from './emoney-browser-helper';
 import {
-  advanceTransferSession,
-  buildPasteConductorSession,
-  completeTransferSession,
-  getCurrentTransferStep,
-  type TransferSession,
+  buildBatchPastePayload,
+  type BatchPastePayload,
 } from './paste-conductor';
 
 /**
@@ -352,39 +349,55 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-function buildTransferReport(session: TransferSession): string {
+function formatFieldNames(fields: string[]): string {
+  const labels: Record<string, string> = {
+    ticker: 'Ticker',
+    units: 'Units',
+    costBasis: 'Cost Basis',
+    marketValue: 'Market Value',
+    assetClass: 'Asset Class',
+    sector: 'Sector',
+    save: 'Save',
+  };
+  return fields.map((field) => labels[field] ?? field).join(', ');
+}
+
+function buildBatchTransferReport(batch: BatchPastePayload): string {
   const lines = [
-    'Guided eMoney Entry Session Report',
-    `Account: ${session.accountNumber} (${session.accountType})`,
-    `Eligible rows prepared: ${session.totalRows}`,
-    `Blocked rows excluded: ${session.blockedCount}`,
-    `Steps completed: ${Math.min(session.currentStepIndex, session.totalSteps)} of ${session.totalSteps}`,
+    'eMoney Transfer Packet',
+    `Account: ${batch.accountNumber} (${batch.accountType})`,
+    `Rows prepared: ${batch.rowCount}`,
+    `Blocked rows excluded: ${batch.blockedCount}`,
+    `Included fields: ${formatFieldNames(batch.includedFields)}`,
+    `Excluded fields: ${formatFieldNames(batch.excludedFields)}`,
     '',
     'Safety boundary:',
-    '- Human-paste clipboard conductor only.',
+    '- One reviewed clipboard packet only.',
     '- No browser extension.',
-    '- No DevTools snippet.',
+    '- No browser script or injected helper.',
     '- No auto-keystrokes.',
     '- No eMoney Save action.',
     '- No market value, asset class, or sector paste steps.',
     '',
-    'Prepared steps:',
+    'Placement:',
+    'Click the first eMoney Ticker cell, then press Ctrl+V once.',
+    '',
+    'Rows:',
   ];
 
-  session.steps.forEach((step, index) => {
-    const status = index < session.currentStepIndex ? 'complete' : 'pending';
-    lines.push(`${index + 1}. Row ${step.rowNumber} ${step.fieldLabel}: ${step.clipboardValue} [${status}]`);
+  batch.previewRows.forEach((row) => {
+    lines.push(`${row.rowNumber}. ${row.ticker}\t${row.units}\t${row.costBasis}`);
   });
 
   return lines.join('\n');
 }
 
-function downloadSessionReport(session: TransferSession): void {
-  const blob = new Blob([buildTransferReport(session)], { type: 'text/plain' });
+function downloadBatchReport(batch: BatchPastePayload): void {
+  const blob = new Blob([buildBatchTransferReport(batch)], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `emoney-guided-entry-${session.accountNumber}.txt`;
+  link.download = `emoney-transfer-packet-${batch.accountNumber}.txt`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -416,14 +429,14 @@ export function renderReviewExportSurface(
   title.textContent = 'Review ledger';
   headingCopy.appendChild(title);
   const subtitle = document.createElement('p');
-  subtitle.textContent = 'Eligible rows can be conducted into eMoney one clipboard value at a time. Blocked rows stay excluded unless the operator intentionally enables the supported override.';
+  subtitle.textContent = 'Eligible rows become one reviewed transfer packet for eMoney. Blocked rows stay excluded unless the operator intentionally enables the supported override.';
   headingCopy.appendChild(subtitle);
   heading.appendChild(headingCopy);
   root.appendChild(heading);
 
   const safetyBanner = document.createElement('div');
   safetyBanner.className = 'safety-banner';
-  safetyBanner.textContent = 'Safety boundary: this workflow prepares clipboard values only. The operator pastes visibly in eMoney and saves manually.';
+  safetyBanner.textContent = 'Safety boundary: this workflow prepares one clipboard packet only. The operator places it visibly in eMoney and saves manually.';
   root.appendChild(safetyBanner);
 
   const metrics = document.createElement('section');
@@ -492,7 +505,8 @@ export function renderReviewExportSurface(
     transferPanel.hidden = true;
     accountWrap.appendChild(transferPanel);
 
-    let activeSession: TransferSession | null = null;
+    let activeBatch: BatchPastePayload | null = null;
+    let packetCopyStatus: 'idle' | 'copied' | 'blocked' = 'idle';
 
     const renderRows = () => {
       tbody.innerHTML = '';
@@ -530,106 +544,97 @@ export function renderReviewExportSurface(
         : `Override OFF: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked. Blocked reason counts: ${blockedReasonText}`;
     };
 
-    const renderTransferSession = () => {
-      if (!activeSession) {
+    const renderTransferPacket = () => {
+      if (!activeBatch) {
         transferPanel.hidden = true;
         return;
       }
 
       transferPanel.hidden = false;
       transferPanel.innerHTML = '';
-      const currentStep = getCurrentTransferStep(activeSession);
-      const completedSteps = Math.min(activeSession.currentStepIndex, activeSession.totalSteps);
-      const pct = activeSession.totalSteps === 0 ? 100 : Math.round((completedSteps / activeSession.totalSteps) * 100);
 
       const layout = document.createElement('div');
       layout.className = 'transfer-grid';
 
       const left = document.createElement('div');
       const panelTitle = document.createElement('h3');
-      panelTitle.textContent = activeSession.status === 'complete' ? 'Guided entry complete' : 'Guided eMoney entry';
+      panelTitle.textContent = 'Transfer packet';
       left.appendChild(panelTitle);
 
       const summary = document.createElement('p');
-      summary.textContent = `${activeSession.totalRows} eligible rows prepared. ${activeSession.blockedCount} blocked rows excluded. ${completedSteps} of ${activeSession.totalSteps} paste steps complete.`;
+      summary.textContent = `${activeBatch.rowCount} eligible rows prepared. ${activeBatch.blockedCount} blocked rows excluded. One paste into eMoney.`;
       left.appendChild(summary);
 
-      const progress = document.createElement('div');
-      progress.className = 'progress-track';
-      const progressFill = document.createElement('span');
-      progressFill.className = 'progress-fill';
-      progressFill.style.width = `${pct}%`;
-      progress.appendChild(progressFill);
-      left.appendChild(progress);
+      const fields = document.createElement('p');
+      fields.innerHTML = `<span class="badge ok">Included</span> ${formatFieldNames(activeBatch.includedFields)} &nbsp; <span class="badge bad">Excluded</span> ${formatFieldNames(activeBatch.excludedFields)}`;
+      left.appendChild(fields);
 
       const boundary = document.createElement('p');
-      boundary.innerHTML = '<span class="badge info">Manual boundary</span> This panel copies values only. It does not click, type, control the browser, or save in eMoney.';
+      boundary.innerHTML = '<span class="badge info">Manual boundary</span> The app copies the reviewed packet only. It does not click, type, control the browser, or save in eMoney.';
       left.appendChild(boundary);
 
       const copyState = document.createElement('p');
       copyState.className = 'transfer-copy-state';
-      copyState.textContent = currentStep
-        ? currentStep.operatorInstruction
-        : 'Review the eMoney page one final time. Save remains manual.';
+      copyState.textContent = activeBatch.rowCount === 0
+        ? 'No eligible rows are available to copy.'
+        : packetCopyStatus === 'copied'
+          ? 'Copied and ready for one paste. Click the first eMoney Ticker cell, then press Ctrl+V once.'
+          : packetCopyStatus === 'blocked'
+            ? 'Clipboard copy was blocked. Manually copy the TSV packet from the output panel, then click the first eMoney Ticker cell and press Ctrl+V once.'
+            : 'Ready to copy. After copying, click the first eMoney Ticker cell, then press Ctrl+V once.';
       left.appendChild(copyState);
 
       const stepActions = document.createElement('div');
       stepActions.className = 'ledger-actions';
 
-      const copyBtn = makeButton('Copy Next Value');
-      copyBtn.disabled = !currentStep;
+      const copyBtn = makeButton('Copy Batch for eMoney');
+      copyBtn.disabled = activeBatch.rowCount === 0;
       copyBtn.onclick = async () => {
-        if (!currentStep) return;
-        const copied = await copyTextToClipboard(currentStep.clipboardValue);
+        if (!activeBatch || activeBatch.rowCount === 0) return;
+        const copied = await copyTextToClipboard(activeBatch.clipboardText);
+        packetCopyStatus = copied ? 'copied' : 'blocked';
         copyState.textContent = copied
-          ? `Copied ${currentStep.fieldLabel} for row ${currentStep.rowNumber}. Paste it visibly in eMoney, then mark complete.`
-          : `Clipboard copy was blocked. Manually copy this value: ${currentStep.clipboardValue}`;
+          ? 'Copied and ready for one paste. Click the first eMoney Ticker cell, then press Ctrl+V once.'
+          : 'Clipboard copy was blocked. Manually copy the TSV packet from the output panel, then click the first eMoney Ticker cell and press Ctrl+V once.';
+        output.textContent = copied
+          ? buildBatchTransferReport(activeBatch)
+          : `${buildBatchTransferReport(activeBatch)}\n\nTSV clipboard packet:\n${activeBatch.clipboardText}`;
       };
       stepActions.appendChild(copyBtn);
 
-      const doneBtn = makeButton('Mark Step Complete', 'ledger-button secondary');
-      doneBtn.disabled = !currentStep;
-      doneBtn.onclick = () => {
-        if (!activeSession) return;
-        activeSession = advanceTransferSession(activeSession);
-        renderTransferSession();
-      };
-      stepActions.appendChild(doneBtn);
-
-      const completeBtn = makeButton('Finish Session', 'ledger-button ghost');
-      completeBtn.disabled = activeSession.status === 'complete';
-      completeBtn.onclick = () => {
-        if (!activeSession) return;
-        activeSession = completeTransferSession(activeSession);
-        renderTransferSession();
-      };
-      stepActions.appendChild(completeBtn);
-
-      const reportBtn = makeButton('Export Session Report', 'ledger-button ghost');
+      const reportBtn = makeButton('Export Packet Report', 'ledger-button ghost');
       reportBtn.onclick = () => {
-        if (!activeSession) return;
-        output.textContent = buildTransferReport(activeSession);
-        downloadSessionReport(activeSession);
+        if (!activeBatch) return;
+        output.textContent = buildBatchTransferReport(activeBatch);
+        downloadBatchReport(activeBatch);
       };
       stepActions.appendChild(reportBtn);
       left.appendChild(stepActions);
 
+      const preview = document.createElement('table');
+      preview.className = 'holdings-table packet-preview';
+      preview.innerHTML = '<thead><tr><th>Row</th><th>Ticker</th><th>Units</th><th>Cost Basis</th></tr></thead>';
+      const previewBody = document.createElement('tbody');
+      activeBatch.previewRows.slice(0, 8).forEach((previewRow) => {
+        const tr = document.createElement('tr');
+        appendCell(tr, String(previewRow.rowNumber));
+        appendCell(tr, previewRow.ticker);
+        appendCell(tr, previewRow.units);
+        appendCell(tr, previewRow.costBasis);
+        previewBody.appendChild(tr);
+      });
+      preview.appendChild(previewBody);
+      left.appendChild(preview);
+      if (activeBatch.previewRows.length > 8) {
+        const more = document.createElement('p');
+        more.className = 'transfer-copy-state';
+        more.textContent = `Previewing first 8 rows. ${activeBatch.previewRows.length - 8} more rows are included in the copied packet.`;
+        left.appendChild(more);
+      }
+
       const right = document.createElement('aside');
       right.className = 'next-value';
-      if (currentStep) {
-        const value = document.createElement('strong');
-        value.textContent = currentStep.clipboardValue || '(blank)';
-        right.innerHTML = '<span>Next paste</span>';
-        right.appendChild(value);
-        const row = document.createElement('p');
-        row.textContent = `Row ${currentStep.rowNumber}: ${currentStep.fieldLabel}`;
-        right.appendChild(row);
-        const ticker = document.createElement('p');
-        ticker.textContent = currentStep.ticker;
-        right.appendChild(ticker);
-      } else {
-        right.innerHTML = '<span>Status</span><strong>Complete</strong><p>All prepared clipboard steps are complete.</p>';
-      }
+      right.innerHTML = '<span>Clipboard shape</span><strong>Ticker + Units + Cost Basis</strong><p>Rows are tab-delimited. No header row. No market value.</p>';
 
       layout.appendChild(left);
       layout.appendChild(right);
@@ -637,10 +642,11 @@ export function renderReviewExportSurface(
     };
 
     overrideInput.onchange = () => {
-      activeSession = null;
+      activeBatch = null;
+      packetCopyStatus = 'idle';
       renderSummary();
       renderRows();
-      renderTransferSession();
+      renderTransferPacket();
     };
 
     const actions = document.createElement('div');
@@ -656,23 +662,24 @@ export function renderReviewExportSurface(
     };
     actions.appendChild(exportBtn);
 
-    const conductorBtn = makeButton('Prepare Guided eMoney Entry');
-    conductorBtn.onclick = () => {
+    const conductorBtn = makeButton('Copy Batch for eMoney');
+    conductorBtn.onclick = async () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
       });
       const summary = buildAccountPreflightSummary(account, {
         allowManualOverride: overrideInput.checked,
       });
-      activeSession = buildPasteConductorSession(payload, { blockedCount: summary.blockedCount });
-      output.textContent = [
-        `Prepared guided eMoney entry for ${activeSession.totalRows} eligible holdings.`,
-        `Blocked holdings excluded: ${activeSession.blockedCount}.`,
-        'Next: open the correct eMoney Holdings page, click Copy Next Value, paste visibly, and mark each step complete.',
-        'Safety: this flow never opens DevTools, never injects a script, never controls the browser, and never clicks Save.',
-      ].join('\n');
+      activeBatch = buildBatchPastePayload(payload, { blockedCount: summary.blockedCount });
+      const copied = activeBatch.rowCount > 0 && await copyTextToClipboard(activeBatch.clipboardText);
+      packetCopyStatus = activeBatch.rowCount === 0 ? 'idle' : copied ? 'copied' : 'blocked';
+      output.textContent = copied
+        ? buildBatchTransferReport(activeBatch)
+        : activeBatch.rowCount === 0
+          ? `No eligible holdings are available for account ${activeBatch.accountNumber}. Blocked rows excluded: ${activeBatch.blockedCount}.`
+          : `${buildBatchTransferReport(activeBatch)}\n\nClipboard copy was blocked. Manually copy this TSV packet:\n${activeBatch.clipboardText}`;
       opts?.onExport?.(payload);
-      renderTransferSession();
+      renderTransferPacket();
     };
     actions.appendChild(conductorBtn);
     accountWrap.appendChild(actions);

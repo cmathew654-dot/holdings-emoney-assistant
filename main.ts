@@ -81,12 +81,12 @@ export function renderLocalMvpShell(root: HTMLElement): void {
 
   const title = document.createElement('h1');
   title.className = 'ledger-title';
-  title.textContent = 'Holdings entry, reviewed before every paste.';
+  title.textContent = 'Holdings entry, reviewed before one paste.';
   heroCopy.appendChild(title);
 
   const subtitle = document.createElement('p');
   subtitle.className = 'ledger-subtitle';
-  subtitle.textContent = 'Load a holdings CSV, review the export gate, then conduct eMoney entry one visible clipboard value at a time. No DevTools, no extension, no API, no auto-save.';
+  subtitle.textContent = 'Load a holdings CSV, review the export gate, then copy one eMoney transfer packet for a single visible paste. No browser script, no extension, no API, no auto-save.';
   heroCopy.appendChild(subtitle);
   hero.appendChild(heroCopy);
 

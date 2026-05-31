@@ -1,6 +1,6 @@
 [package]
 name = "holdings-emoney-assistant"
-version = "0.1.1"
+version = "0.1.2"
 description = "Local-only holdings review and guided eMoney entry assistant"
 authors = ["Cyril"]
 edition = "2021"

@@ -33,26 +33,25 @@ Use override only after manual validation of identity/data correctness.
 4. Do not use `Last Updated` as acquisition date; it is statement/as-of context only.
 5. Expect `$CASH$` rows and zero-price/nonzero-value rows to be blocked by default.
 
-## Guided eMoney entry flow
+## One-paste eMoney transfer flow
 1. In the review/export UI, keep override OFF first.
-2. Click **Prepare Guided eMoney Entry**.
+2. Click **Copy Batch for eMoney**.
 3. Open the correct eMoney Holdings page.
-4. Click **Copy Next Value** in the local tool.
-5. Paste that value into the visible eMoney field named by the conductor.
-6. Click **Mark Step Complete** only after pasting and visually checking the field.
-7. Repeat until the session is complete.
+4. Click the first target Ticker cell.
+5. Press **Ctrl+V** once.
+6. Review every staged row before saving.
 
-The conductor only prepares clipboard values for ticker, units, and cost basis. Market value is for reconciliation only because eMoney calculates value. The conductor must not click, type, inject scripts, open DevTools, or click Save.
+The transfer packet only contains ticker, units, and cost basis. Market value is for reconciliation only because eMoney calculates value. The tool must not click, type, inject scripts, control the browser, or click Save.
 
 ## Required manual verification steps
 1. Confirm the correct account/context before export.
 2. Review blocked reasons and issue list before enabling override.
-3. During guided entry, verify each row-level value on page (identifier, units, cost basis, required fields).
+3. After the one-paste transfer, verify each row-level value on page (identifier, units, cost basis, required fields).
 4. Save manually only after verification is complete.
 
 ## What not to do
 - Do not auto-save.
-- Do not use DevTools as the primary entry path.
+- Do not use browser scripts as the primary entry path.
 - Do not use browser extensions or eMoney API access for this workaround.
 - Do not ignore warnings.
 - Do not force through ambiguous matches.

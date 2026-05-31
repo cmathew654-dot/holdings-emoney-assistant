@@ -4,14 +4,14 @@
 This repo implements a local, human-reviewed workflow to:
 1. Parse custodial holdings CSV files exported from a spreadsheet.
 2. Review holdings and issues with conservative export gating.
-3. Export eligible holdings as JSON or prepare guided eMoney entry.
-4. Conduct eMoney entry with human-paste clipboard steps without DevTools, browser extensions, API access, or auto-save.
+3. Export eligible holdings as JSON or prepare a one-paste eMoney transfer packet.
+4. Conduct eMoney entry with one reviewed tab-delimited clipboard packet without browser scripting, browser extensions, API access, or auto-save.
 
 ## Current modules
 - `holdings-schema.ts` - canonical file/account/holding/issue contracts.
 - `holdings-csv-parser.ts` - CSV ingestion, normalization, issue generation, account grouping.
-- `review-export-surface.ts` - eligibility logic, preflight summaries, Regulated Ledger review UI, guided entry preparation, and legacy eMoney snippet generation.
-- `paste-conductor.ts` - guided clipboard transfer-session model for human-paste eMoney entry.
+- `review-export-surface.ts` - eligibility logic, preflight summaries, Regulated Ledger review UI, batch transfer preparation, and legacy eMoney snippet generation.
+- `paste-conductor.ts` - batch clipboard transfer model plus legacy guided step model for fallback tests.
 - `ledger-styles.ts` - Regulated Ledger UI styling shared by the browser demo and desktop shell.
 - `emoney-browser-helper.ts` - row discovery, matching, upsert/fill helpers, ambiguity hard-stop.
 - `main.ts` - local entrypoint.
@@ -41,11 +41,10 @@ Notes:
 2. Parse CSV into `HoldingsIngestionFile`.
 3. Review account/holding issues in the review/export surface.
 4. Keep override OFF by default; turn ON only after manual validation.
-5. Click **Prepare Guided eMoney Entry** for eligible holdings only.
+5. Click **Copy Batch for eMoney** for eligible holdings only.
 6. In eMoney, open the correct Holdings page.
-7. Copy one value at a time from the conductor and paste visibly into eMoney.
-8. Mark steps complete only after visual confirmation.
-9. Manually verify page values and then save manually.
+7. Click the first target Ticker cell and press Ctrl+V once.
+8. Manually verify page values and then save manually.
 
 ## Safety model
 - Local-only.
@@ -54,8 +53,8 @@ Notes:
 - No auto-save.
 - Human-in-the-loop required.
 - Ambiguous row matches hard-stop (`AMBIGUOUS_MATCH`).
-- Guided entry prepares ticker, units, and cost basis only; market value is shown for reconciliation only because eMoney calculates value from shares/pricing.
-- Guided entry does not click, type, inject scripts, control the browser, or click Save.
+- Batch transfer prepares ticker, units, and cost basis only; market value is shown for reconciliation only because eMoney calculates value from shares/pricing.
+- Batch transfer does not click, type, inject scripts, control the browser, or click Save.
 - Row display + summary + export eligibility must remain synchronized.
 
 ## Commands
@@ -75,18 +74,18 @@ Notes:
 ## Current readiness status
 - Engineering handoff: ready.
 - Cautious operator handoff: ready with runbook discipline.
-- Stakeholder demo path: CSV -> review/export -> prepare guided entry -> copy/paste values visibly into eMoney -> manual verification/save.
+- Stakeholder demo path: CSV -> review/export -> copy one transfer packet -> paste once visibly into eMoney -> manual verification/save.
 
 ## Known limitations / deferred items
 - Direct PDF ingestion is deferred.
 - Direct XLSX runtime ingestion is not required for the current demo path; convert spreadsheet output to CSV UTF-8 first.
-- UI now has a Regulated Ledger review/export shell and guided entry conductor; signed production desktop distribution is still future work.
+- UI now has a Regulated Ledger review/export shell and one-paste transfer packet; signed production desktop distribution is still future work.
 - Legacy eMoney snippet/helper code remains for engineering fallback and tests, but DevTools is no longer the primary operator path.
 - Browser-helper tests use a lightweight fake DOM harness, not full browser E2E.
 - Packaging is available as a local static browser demo and scaffolded Tauri/WebView2 desktop shell; no signed installer yet.
 
 ## Likely next engineering tasks
-1. Desktop verification pass of current CSV -> guided entry -> eMoney manual-save flow.
+1. Desktop verification pass of current CSV -> one-paste transfer packet -> eMoney manual-save flow.
 2. Signed packaging/installer polish for repeatable local usage.
 3. Stronger runtime-confidence checks if the legacy injected path remains available.
 4. Optional direct XLSX intake after the demo path is stable.

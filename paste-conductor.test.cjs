@@ -2,6 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const {
+  buildBatchPastePayload,
   buildPasteConductorSession,
   getCurrentTransferStep,
   advanceTransferSession,
@@ -28,6 +29,60 @@ function holding(overrides = {}) {
     ...overrides,
   };
 }
+
+test('buildBatchPastePayload creates a one-paste TSV packet for eligible holdings', () => {
+  const batch = buildBatchPastePayload(payload([
+    holding({ ticker: 'AAPL', units: 10, costBasis: 1450, marketValue: 3000 }),
+    holding({ ticker: 'MSFT', units: 5.25, costBasis: 1800.5, marketValue: 2500 }),
+  ]), { blockedCount: 2 });
+
+  assert.equal(batch.accountNumber, '123456789');
+  assert.equal(batch.rowCount, 2);
+  assert.equal(batch.blockedCount, 2);
+  assert.deepEqual(batch.includedFields, ['ticker', 'units', 'costBasis']);
+  assert.deepEqual(batch.excludedFields, ['marketValue', 'assetClass', 'sector', 'save']);
+  assert.equal(batch.clipboardText, 'AAPL\t10\t1450\nMSFT\t5.25\t1800.5');
+  assert.deepEqual(batch.previewRows, [
+    { rowNumber: 1, ticker: 'AAPL', units: '10', costBasis: '1450' },
+    { rowNumber: 2, ticker: 'MSFT', units: '5.25', costBasis: '1800.5' },
+  ]);
+});
+
+test('buildBatchPastePayload never includes market value, asset class, sector, or save data', () => {
+  const batch = buildBatchPastePayload(payload([
+    holding({
+      ticker: 'AAPL',
+      units: 10,
+      costBasis: 1450,
+      marketValue: 3000,
+      assetClass: 'Equity',
+      sector: 'Technology',
+      save: 'Save',
+    }),
+  ]));
+
+  assert.equal(batch.clipboardText, 'AAPL\t10\t1450');
+  assert.doesNotMatch(batch.clipboardText, /3000|Equity|Technology|Save/i);
+  assert.equal(batch.clipboardText.split('\n').length, 1);
+  assert.equal(batch.clipboardText.split('\t').length, 3);
+});
+
+test('buildBatchPastePayload keeps TSV shape stable when values contain whitespace controls', () => {
+  const batch = buildBatchPastePayload(payload([
+    holding({ ticker: 'AAPL\tUS', units: '10\nshares', costBasis: '1450\r\nbasis' }),
+  ]));
+
+  assert.equal(batch.clipboardText, 'AAPL US\t10 shares\t1450 basis');
+});
+
+test('empty batch paste payload is copy-safe', () => {
+  const batch = buildBatchPastePayload(payload([]), { blockedCount: 3 });
+
+  assert.equal(batch.rowCount, 0);
+  assert.equal(batch.blockedCount, 3);
+  assert.equal(batch.clipboardText, '');
+  assert.deepEqual(batch.previewRows, []);
+});
 
 test('buildPasteConductorSession creates only human-paste steps for eligible holdings', () => {
   const session = buildPasteConductorSession(payload([

@@ -5,9 +5,9 @@ This is the shortest path for a room demo of the local-only MVP.
 ## What you are showing
 1. Load a holdings CSV locally.
 2. Review eligible vs blocked rows.
-3. Prepare a guided eMoney entry session.
-4. Copy one approved value at a time from the local conductor.
-5. Paste visibly into the correct eMoney Holdings fields.
+3. Copy a reviewed eMoney transfer packet.
+4. Paste once into the first target eMoney Holdings Ticker cell.
+5. Verify the staged rows.
 6. Review manually. Save manually only if appropriate.
 
 ## Prerequisites
@@ -41,14 +41,12 @@ http://localhost:8080/
 - Market value is shown for reconciliation only; eMoney calculates value.
 
 ## Export for eMoney
-1. Click **Prepare Guided eMoney Entry**.
+1. Click **Copy Batch for eMoney**.
 2. Go to the correct eMoney Holdings page.
-3. In the local tool, click **Copy Next Value**.
-4. Paste that value into the visible eMoney field named by the conductor.
-5. Click **Mark Step Complete** only after pasting and visually checking the field.
-6. Repeat until the conductor says the session is complete.
-7. Review every row visually.
-8. Save manually only after review.
+3. Click the first target **Ticker** cell.
+4. Press **Ctrl+V** once.
+5. Review every row visually.
+6. Save manually only after review.
 
 ## Desktop shell
 For the Windows-first desktop shell, run:
@@ -57,11 +55,11 @@ For the Windows-first desktop shell, run:
 npm run desktop:dev
 ```
 
-The desktop app uses the same local static workflow inside Tauri/WebView2. It does not host eMoney, control Chrome, install an extension, or use eMoney API access.
+The desktop app uses the same local static workflow inside Tauri/WebView2. It does not host eMoney, control Chrome, install an extension, run browser scripts, or use eMoney API access.
 
 ## Troubleshooting
 - **`npm` cannot find `package.json`**: you are in the wrong folder. Open Command Prompt inside the repo folder.
 - **`tsc` not recognized**: run `npm install` from the repo folder.
 - **Port 8080 in use**: run `set PORT=8081` then `npm run start:demo`, and open `http://localhost:8081/`.
-- **Clipboard blocked**: manually copy the current value from the conductor's next-value panel.
-- **Wrong eMoney field**: stop the session and correct manually. The app does not click, type, or save inside eMoney.
+- **Clipboard blocked**: manually copy the TSV packet from the output panel.
+- **Wrong first eMoney cell**: stop, undo/correct manually in eMoney, and paste again only after the right first Ticker cell is selected. The app does not click, type, or save inside eMoney.

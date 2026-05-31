@@ -429,6 +429,13 @@ export function installRegulatedLedgerStyles(): void {
       margin: 10px 0 0;
     }
 
+    .packet-preview {
+      margin-top: 14px;
+      border: 1px solid var(--ledger-line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
     .output-panel {
       white-space: pre-wrap;
       border: 1px solid var(--ledger-line);
