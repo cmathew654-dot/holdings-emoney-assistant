@@ -17,6 +17,8 @@ const tscArgs = [
   'main.ts',
   'holdings-schema.ts',
   'holdings-csv-parser.ts',
+  'ledger-styles.ts',
+  'paste-conductor.ts',
   'review-export-surface.ts',
   'emoney-browser-helper.ts',
 ];

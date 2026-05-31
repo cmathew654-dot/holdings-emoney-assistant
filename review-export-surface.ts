@@ -1,5 +1,12 @@
 import type { AccountRecord, HoldingRecord, HoldingsIngestionFile, Issue } from './holdings-schema';
 import type { BrowserHoldingInput } from './emoney-browser-helper';
+import {
+  advanceTransferSession,
+  buildPasteConductorSession,
+  completeTransferSession,
+  getCurrentTransferStep,
+  type TransferSession,
+} from './paste-conductor';
 
 /**
  * Minimal review/export surface for internal local-only workflow.
@@ -321,139 +328,325 @@ function formatIssues(issues: Issue[]): string {
   return issues.map((i) => `${i.severity.toUpperCase()}:${i.code}${i.field ? ` (${i.field})` : ''}`).join(', ');
 }
 
-/**
- * Renders a minimal review table and export action per account.
- *
- * The export button writes assistant-ready payload JSON to the output panel,
- * and returns it through optional callback.
- */
+function makeButton(label: string, className = 'ledger-button'): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = className;
+  button.textContent = label;
+  return button;
+}
+
+function appendCell(row: HTMLTableRowElement, text: string): void {
+  const cell = document.createElement('td');
+  cell.textContent = text;
+  row.appendChild(cell);
+}
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  if (!navigator.clipboard?.writeText) return false;
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function buildTransferReport(session: TransferSession): string {
+  const lines = [
+    'Guided eMoney Entry Session Report',
+    `Account: ${session.accountNumber} (${session.accountType})`,
+    `Eligible rows prepared: ${session.totalRows}`,
+    `Blocked rows excluded: ${session.blockedCount}`,
+    `Steps completed: ${Math.min(session.currentStepIndex, session.totalSteps)} of ${session.totalSteps}`,
+    '',
+    'Safety boundary:',
+    '- Human-paste clipboard conductor only.',
+    '- No browser extension.',
+    '- No DevTools snippet.',
+    '- No auto-keystrokes.',
+    '- No eMoney Save action.',
+    '- No market value, asset class, or sector paste steps.',
+    '',
+    'Prepared steps:',
+  ];
+
+  session.steps.forEach((step, index) => {
+    const status = index < session.currentStepIndex ? 'complete' : 'pending';
+    lines.push(`${index + 1}. Row ${step.rowNumber} ${step.fieldLabel}: ${step.clipboardValue} [${status}]`);
+  });
+
+  return lines.join('\n');
+}
+
+function downloadSessionReport(session: TransferSession): void {
+  const blob = new Blob([buildTransferReport(session)], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `emoney-guided-entry-${session.accountNumber}.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 export function renderReviewExportSurface(
   root: HTMLElement,
   ingestion: HoldingsIngestionFile,
   opts?: { onExport?: (payload: AssistantAccountPayload) => void }
 ): void {
   root.innerHTML = '';
+  root.className = 'review-root';
 
-  root.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
+  const overall = ingestion.accounts.reduce(
+    (acc, account) => {
+      const summary = buildAccountPreflightSummary(account);
+      acc.eligible += summary.eligibleCount;
+      acc.blocked += summary.blockedCount;
+      acc.warningBearing += summary.warningBearingCount;
+      acc.holdings += account.holdings.length;
+      return acc;
+    },
+    { eligible: 0, blocked: 0, warningBearing: 0, holdings: 0 }
+  );
 
+  const heading = document.createElement('section');
+  heading.className = 'review-heading';
+  const headingCopy = document.createElement('div');
   const title = document.createElement('h2');
-  title.textContent = '2. Review holdings and export eMoney snippet';
-  title.style.marginTop = '24px';
-  root.appendChild(title);
+  title.textContent = 'Review ledger';
+  headingCopy.appendChild(title);
+  const subtitle = document.createElement('p');
+  subtitle.textContent = 'Eligible rows can be conducted into eMoney one clipboard value at a time. Blocked rows stay excluded unless the operator intentionally enables the supported override.';
+  headingCopy.appendChild(subtitle);
+  heading.appendChild(headingCopy);
+  root.appendChild(heading);
 
   const safetyBanner = document.createElement('div');
-  safetyBanner.textContent = 'Safety: blocked rows are excluded by default. The eMoney snippet never clicks Save; verify rows manually in eMoney.';
-  safetyBanner.style.border = '1px solid #f59e0b';
-  safetyBanner.style.background = '#fffbeb';
-  safetyBanner.style.padding = '10px';
-  safetyBanner.style.borderRadius = '8px';
-  safetyBanner.style.margin = '10px 0';
+  safetyBanner.className = 'safety-banner';
+  safetyBanner.textContent = 'Safety boundary: this workflow prepares clipboard values only. The operator pastes visibly in eMoney and saves manually.';
   root.appendChild(safetyBanner);
 
-  const fileSummary = document.createElement('p');
-  fileSummary.textContent = `Accounts: ${ingestion.accounts.length} | File Issues: ${ingestion.issues.length}`;
-  root.appendChild(fileSummary);
+  const metrics = document.createElement('section');
+  metrics.className = 'metric-strip';
+  [
+    ['Accounts', String(ingestion.accounts.length)],
+    ['Eligible', String(overall.eligible)],
+    ['Blocked', String(overall.blocked)],
+    ['Warnings', String(overall.warningBearing + ingestion.issues.length)],
+  ].forEach(([label, value]) => {
+    const card = document.createElement('div');
+    card.className = 'metric-card';
+    card.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+    metrics.appendChild(card);
+  });
+  root.appendChild(metrics);
 
   const output = document.createElement('pre');
-  output.textContent = 'Output will appear here after you export JSON or copy an eMoney snippet.';
-  output.style.whiteSpace = 'pre-wrap';
-  output.style.border = '1px solid #cbd5e1';
-  output.style.background = '#f8fafc';
-  output.style.padding = '12px';
-  output.style.borderRadius = '8px';
-  output.style.maxHeight = '360px';
-  output.style.overflow = 'auto';
+  output.className = 'output-panel';
+  output.textContent = 'Session output appears here after an operator action.';
   root.appendChild(output);
 
   ingestion.accounts.forEach((account) => {
     const accountWrap = document.createElement('section');
-    accountWrap.style.margin = '18px 0';
-    accountWrap.style.padding = '16px';
-    accountWrap.style.border = '1px solid #cbd5e1';
-    accountWrap.style.borderRadius = '10px';
-    accountWrap.style.background = '#ffffff';
+    accountWrap.className = 'account-panel';
 
+    const accountHeader = document.createElement('div');
+    accountHeader.className = 'account-header';
+    const accountHeaderCopy = document.createElement('div');
     const header = document.createElement('h3');
     header.textContent = `${account.accountNumber} (${account.accountType})`;
-    accountWrap.appendChild(header);
+    accountHeaderCopy.appendChild(header);
 
     const accountIssues = document.createElement('p');
     accountIssues.textContent = `Account Issues: ${formatIssues(account.issues)}`;
-    accountWrap.appendChild(accountIssues);
+    accountHeaderCopy.appendChild(accountIssues);
+    accountHeader.appendChild(accountHeaderCopy);
+    accountWrap.appendChild(accountHeader);
 
     const overrideLabel = document.createElement('label');
-    overrideLabel.style.display = 'block';
-    overrideLabel.style.margin = '6px 0';
+    overrideLabel.className = 'override-row';
     const overrideInput = document.createElement('input');
     overrideInput.type = 'checkbox';
-    overrideInput.style.marginRight = '6px';
     overrideLabel.appendChild(overrideInput);
     overrideLabel.appendChild(document.createTextNode('Override safety gate for manual-review-required codes (use carefully)'));
     accountWrap.appendChild(overrideLabel);
 
-    const overrideState = document.createElement('p');
-    overrideState.textContent = 'Override: OFF (recommended). Blocked holdings stay excluded.';
-    accountWrap.appendChild(overrideState);
-
     const preflight = document.createElement('p');
     accountWrap.appendChild(preflight);
+
+    const table = document.createElement('table');
+    table.className = 'holdings-table';
+    const thead = document.createElement('thead');
+    thead.innerHTML = '<tr><th>Status</th><th>Ticker</th><th>CUSIP</th><th>Units</th><th>Cost Basis</th><th>Market Value</th><th>Blocked Why</th><th>Issues</th></tr>';
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    table.appendChild(tbody);
+    const tableWrap = document.createElement('div');
+    tableWrap.className = 'holdings-table-wrap';
+    tableWrap.appendChild(table);
+    accountWrap.appendChild(tableWrap);
+
+    const transferPanel = document.createElement('section');
+    transferPanel.className = 'transfer-panel';
+    transferPanel.hidden = true;
+    accountWrap.appendChild(transferPanel);
+
+    let activeSession: TransferSession | null = null;
+
+    const renderRows = () => {
+      tbody.innerHTML = '';
+      const rowDisplay = getAccountRowDisplay(account, { allowManualOverride: overrideInput.checked });
+      rowDisplay.forEach(({ holding, eligible, blockedWhy }) => {
+        const tr = document.createElement('tr');
+        tr.className = eligible ? 'row-eligible' : 'row-blocked';
+
+        const statusCell = document.createElement('td');
+        const badge = document.createElement('span');
+        badge.className = `badge ${eligible ? 'ok' : 'bad'}`;
+        badge.textContent = eligible ? 'Eligible' : 'Blocked';
+        statusCell.appendChild(badge);
+        tr.appendChild(statusCell);
+
+        appendCell(tr, holding.ticker ?? '');
+        appendCell(tr, holding.cusip ?? '');
+        appendCell(tr, holding.units == null ? '' : String(holding.units));
+        appendCell(tr, holding.costBasis == null ? '' : String(holding.costBasis));
+        appendCell(tr, holding.marketValue == null ? '' : String(holding.marketValue));
+        appendCell(tr, blockedWhy);
+        appendCell(tr, formatIssues(holding.issues));
+        tbody.appendChild(tr);
+      });
+    };
 
     const renderSummary = () => {
       const summary = buildAccountPreflightSummary(account, { allowManualOverride: overrideInput.checked });
       const blockedReasonText = Object.keys(summary.blockedReasonsByCode).length
         ? JSON.stringify(summary.blockedReasonsByCode)
         : '{}';
-      preflight.textContent = `Preflight summary: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked, ${summary.warningBearingCount} warning-bearing holdings. Blocked reason counts: ${blockedReasonText}`;
-      preflight.style.padding = '10px';
-      preflight.style.borderRadius = '8px';
-      preflight.style.background = summary.blockedCount > 0 ? '#fff7ed' : '#f0fdf4';
-      preflight.style.border = summary.blockedCount > 0 ? '1px solid #fdba74' : '1px solid #86efac';
-      overrideState.textContent = overrideInput.checked
-        ? 'Override: ON. Manual-review-required holdings may be exported.'
-        : 'Override: OFF (recommended). Blocked holdings stay excluded.';
+      preflight.className = `preflight ${summary.blockedCount > 0 ? 'blocked' : 'clean'}`;
+      preflight.textContent = overrideInput.checked
+        ? `Override ON: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked. Blocked reason counts: ${blockedReasonText}`
+        : `Override OFF: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked. Blocked reason counts: ${blockedReasonText}`;
+    };
+
+    const renderTransferSession = () => {
+      if (!activeSession) {
+        transferPanel.hidden = true;
+        return;
+      }
+
+      transferPanel.hidden = false;
+      transferPanel.innerHTML = '';
+      const currentStep = getCurrentTransferStep(activeSession);
+      const completedSteps = Math.min(activeSession.currentStepIndex, activeSession.totalSteps);
+      const pct = activeSession.totalSteps === 0 ? 100 : Math.round((completedSteps / activeSession.totalSteps) * 100);
+
+      const layout = document.createElement('div');
+      layout.className = 'transfer-grid';
+
+      const left = document.createElement('div');
+      const panelTitle = document.createElement('h3');
+      panelTitle.textContent = activeSession.status === 'complete' ? 'Guided entry complete' : 'Guided eMoney entry';
+      left.appendChild(panelTitle);
+
+      const summary = document.createElement('p');
+      summary.textContent = `${activeSession.totalRows} eligible rows prepared. ${activeSession.blockedCount} blocked rows excluded. ${completedSteps} of ${activeSession.totalSteps} paste steps complete.`;
+      left.appendChild(summary);
+
+      const progress = document.createElement('div');
+      progress.className = 'progress-track';
+      const progressFill = document.createElement('span');
+      progressFill.className = 'progress-fill';
+      progressFill.style.width = `${pct}%`;
+      progress.appendChild(progressFill);
+      left.appendChild(progress);
+
+      const boundary = document.createElement('p');
+      boundary.innerHTML = '<span class="badge info">Manual boundary</span> This panel copies values only. It does not click, type, control the browser, or save in eMoney.';
+      left.appendChild(boundary);
+
+      const copyState = document.createElement('p');
+      copyState.className = 'transfer-copy-state';
+      copyState.textContent = currentStep
+        ? currentStep.operatorInstruction
+        : 'Review the eMoney page one final time. Save remains manual.';
+      left.appendChild(copyState);
+
+      const stepActions = document.createElement('div');
+      stepActions.className = 'ledger-actions';
+
+      const copyBtn = makeButton('Copy Next Value');
+      copyBtn.disabled = !currentStep;
+      copyBtn.onclick = async () => {
+        if (!currentStep) return;
+        const copied = await copyTextToClipboard(currentStep.clipboardValue);
+        copyState.textContent = copied
+          ? `Copied ${currentStep.fieldLabel} for row ${currentStep.rowNumber}. Paste it visibly in eMoney, then mark complete.`
+          : `Clipboard copy was blocked. Manually copy this value: ${currentStep.clipboardValue}`;
+      };
+      stepActions.appendChild(copyBtn);
+
+      const doneBtn = makeButton('Mark Step Complete', 'ledger-button secondary');
+      doneBtn.disabled = !currentStep;
+      doneBtn.onclick = () => {
+        if (!activeSession) return;
+        activeSession = advanceTransferSession(activeSession);
+        renderTransferSession();
+      };
+      stepActions.appendChild(doneBtn);
+
+      const completeBtn = makeButton('Finish Session', 'ledger-button ghost');
+      completeBtn.disabled = activeSession.status === 'complete';
+      completeBtn.onclick = () => {
+        if (!activeSession) return;
+        activeSession = completeTransferSession(activeSession);
+        renderTransferSession();
+      };
+      stepActions.appendChild(completeBtn);
+
+      const reportBtn = makeButton('Export Session Report', 'ledger-button ghost');
+      reportBtn.onclick = () => {
+        if (!activeSession) return;
+        output.textContent = buildTransferReport(activeSession);
+        downloadSessionReport(activeSession);
+      };
+      stepActions.appendChild(reportBtn);
+      left.appendChild(stepActions);
+
+      const right = document.createElement('aside');
+      right.className = 'next-value';
+      if (currentStep) {
+        const value = document.createElement('strong');
+        value.textContent = currentStep.clipboardValue || '(blank)';
+        right.innerHTML = '<span>Next paste</span>';
+        right.appendChild(value);
+        const row = document.createElement('p');
+        row.textContent = `Row ${currentStep.rowNumber}: ${currentStep.fieldLabel}`;
+        right.appendChild(row);
+        const ticker = document.createElement('p');
+        ticker.textContent = currentStep.ticker;
+        right.appendChild(ticker);
+      } else {
+        right.innerHTML = '<span>Status</span><strong>Complete</strong><p>All prepared clipboard steps are complete.</p>';
+      }
+
+      layout.appendChild(left);
+      layout.appendChild(right);
+      transferPanel.appendChild(layout);
     };
 
     overrideInput.onchange = () => {
+      activeSession = null;
       renderSummary();
       renderRows();
+      renderTransferSession();
     };
 
-    const table = document.createElement('table');
-    table.style.width = '100%';
-    table.style.borderCollapse = 'collapse';
-    table.style.marginTop = '12px';
-    table.border = '1';
+    const actions = document.createElement('div');
+    actions.className = 'account-actions';
 
-    const thead = document.createElement('thead');
-    thead.innerHTML = '<tr><th>Eligible</th><th>Ticker</th><th>CUSIP</th><th>Units</th><th>Cost Basis</th><th>Market Value</th><th>Blocked Why</th><th>Issues</th></tr>';
-    table.appendChild(thead);
-
-    const tbody = document.createElement('tbody');
-    const renderRows = () => {
-      tbody.innerHTML = '';
-      const rowDisplay = getAccountRowDisplay(account, { allowManualOverride: overrideInput.checked });
-      rowDisplay.forEach(({ holding, eligible, blockedWhy }) => {
-        const tr = document.createElement('tr');
-        tr.style.background = eligible ? '#f0fdf4' : '#fef2f2';
-        tr.innerHTML = [
-          `<td>${eligible ? 'Eligible ✅' : 'Blocked ⛔'}</td>`,
-          `<td>${holding.ticker ?? ''}</td>`,
-          `<td>${holding.cusip ?? ''}</td>`,
-          `<td>${holding.units ?? ''}</td>`,
-          `<td>${holding.costBasis ?? ''}</td>`,
-          `<td>${holding.marketValue ?? ''}</td>`,
-          `<td>${blockedWhy}</td>`,
-          `<td>${formatIssues(holding.issues)}</td>`,
-        ].join('');
-        tbody.appendChild(tr);
-      });
-    };
-    table.appendChild(tbody);
-    accountWrap.appendChild(table);
-
-    const exportBtn = document.createElement('button');
-    exportBtn.textContent = 'Export JSON Payload';
-    exportBtn.style.marginTop = '10px';
+    const exportBtn = makeButton('Export JSON Payload', 'ledger-button ghost');
     exportBtn.onclick = () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
@@ -461,39 +654,28 @@ export function renderReviewExportSurface(
       output.textContent = `Exported JSON payload for ${payload.holdings.length} eligible holdings.\n\n${JSON.stringify(payload, null, 2)}`;
       opts?.onExport?.(payload);
     };
-    accountWrap.appendChild(exportBtn);
+    actions.appendChild(exportBtn);
 
-    const snippetBtn = document.createElement('button');
-    snippetBtn.textContent = 'Copy eMoney Fill Snippet';
-    snippetBtn.style.marginLeft = '8px';
-    snippetBtn.onclick = () => {
+    const conductorBtn = makeButton('Prepare Guided eMoney Entry');
+    conductorBtn.onclick = () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
       });
-      const snippet = buildEmoneyDevtoolsSnippet(payload);
       const summary = buildAccountPreflightSummary(account, {
         allowManualOverride: overrideInput.checked,
       });
-      const instructions = [
-        `Prepared eMoney snippet for ${payload.holdings.length} eligible holdings.`,
-        `Blocked holdings excluded: ${summary.blockedCount}.`,
-        'Next: open the correct eMoney Holdings page, paste this into DevTools Console, then review rows before manually saving.',
-        'Safety: this snippet never clicks Save.',
+      activeSession = buildPasteConductorSession(payload, { blockedCount: summary.blockedCount });
+      output.textContent = [
+        `Prepared guided eMoney entry for ${activeSession.totalRows} eligible holdings.`,
+        `Blocked holdings excluded: ${activeSession.blockedCount}.`,
+        'Next: open the correct eMoney Holdings page, click Copy Next Value, paste visibly, and mark each step complete.',
+        'Safety: this flow never opens DevTools, never injects a script, never controls the browser, and never clicks Save.',
       ].join('\n');
-      output.textContent = `${instructions}\n\n${snippet}`;
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(snippet)
-          .then(() => {
-            output.textContent = `Copied to clipboard.\n${output.textContent}`;
-          })
-          .catch(() => {
-            output.textContent = `Clipboard copy was blocked. Manually copy the snippet below.\n${output.textContent}`;
-          });
-      } else {
-        output.textContent = `Clipboard API unavailable. Manually copy the snippet below.\n${output.textContent}`;
-      }
+      opts?.onExport?.(payload);
+      renderTransferSession();
     };
-    accountWrap.appendChild(snippetBtn);
+    actions.appendChild(conductorBtn);
+    accountWrap.appendChild(actions);
 
     renderSummary();
     renderRows();
