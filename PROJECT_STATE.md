@@ -2,9 +2,9 @@
 
 ## Single Source Of Truth
 
-The canonical project should be the GitHub repository `cmathew654-dot/auto`, with the demo-ready work merged into `main`.
+The canonical source of truth is the GitHub repository `cmathew654-dot/auto` on branch `main`.
 
-Use one real local clone for active work:
+The current canonical local clone is:
 
 ```text
 C:\Users\Cyril\Projects\holdings-emoney-assistant
@@ -51,7 +51,7 @@ The generated snippet stages multiple holding rows in eMoney. The operator must 
 - `main`: stable, demo-ready source of truth.
 - `release/csv-mvp-freeze`: historical frozen baseline if needed.
 - `codex/<short-task-name>`: temporary work branches used for focused changes.
-- Pull requests: required path into `main`.
+- Pull requests: required path into `main` unless the change is a narrow metadata/doc correction.
 - Tags: use for named milestones such as `v0.1-csv-mvp` or `v0.2-demo-ready`.
 
 Avoid a long-lived `develop` branch for now. It would add another place for state to diverge.
@@ -70,10 +70,9 @@ Avoid a long-lived `develop` branch for now. It would add another place for stat
 - Browser-helper confidence is based on local tests and the known eMoney Holdings screen behavior; real-browser verification on a safe/test account is still required.
 - The DevTools snippet uses discovered field order and should be treated as supervised assistance, not unattended automation.
 
-## Next Cleanup Steps
+## Optional Later Cleanup
 
-1. Merge the demo-readiness PR after tests and demo build pass.
-2. Rename `auto` to a clearer name such as `holdings-emoney-assistant`.
-3. Clone the canonical repo into `C:\Users\Cyril\Projects\holdings-emoney-assistant`.
-4. Archive or ignore ZIP snapshots and empty placeholder repos.
-5. Decide later whether the larger local `holdings-transformer` workbench should be migrated into this repo or kept as a separate future project.
+1. Rename `cmathew654-dot/auto` to a clearer repository name such as `holdings-emoney-assistant`.
+2. Archive or delete the empty `cmathew654-dot/emoney-injector` placeholder.
+3. Move or archive downloaded ZIP snapshots so they are not mistaken for working repos.
+4. Decide later whether the larger local `holdings-transformer` workbench should be migrated into this repo or kept as a separate future project.
