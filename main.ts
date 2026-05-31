@@ -15,6 +15,7 @@
 
 import { parseHoldingsCsvToIngestionFile } from './holdings-csv-parser';
 import type { HoldingsIngestionFile } from './holdings-schema';
+import { installRegulatedLedgerStyles } from './ledger-styles';
 import { renderReviewExportSurface } from './review-export-surface';
 
 export const SAMPLE_CSV_INPUT = [
@@ -44,66 +45,104 @@ export function runLocalMvp(
   return ingestionFile;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function setStatus(el: HTMLElement, message: string, tone: 'info' | 'success' | 'error' = 'info'): void {
   el.textContent = message;
-  el.style.color = tone === 'error' ? '#991b1b' : tone === 'success' ? '#166534' : '#334155';
+  el.style.color = tone === 'error' ? '#9f3a32' : tone === 'success' ? '#276b53' : '#746c5d';
+}
+
+async function stageLoadStatus(status: HTMLElement, sourceName: string): Promise<void> {
+  setStatus(status, `Reading ${sourceName} locally...`);
+  await delay(180);
+  setStatus(status, 'Parsing holdings and normalizing account rows...');
+  await delay(220);
+  setStatus(status, 'Running preflight gates: blocked rows, warnings, export eligibility...');
+  await delay(260);
 }
 
 export function renderLocalMvpShell(root: HTMLElement): void {
+  installRegulatedLedgerStyles();
   root.innerHTML = '';
 
   const shell = document.createElement('main');
-  shell.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-  shell.style.maxWidth = '1200px';
-  shell.style.margin = '0 auto';
-  shell.style.padding = '24px';
-  shell.style.color = '#111827';
+  shell.className = 'ledger-shell';
+
+  const hero = document.createElement('section');
+  hero.className = 'ledger-hero';
+
+  const heroCopy = document.createElement('div');
+  const kicker = document.createElement('p');
+  kicker.className = 'ledger-kicker';
+  kicker.textContent = 'Local desktop ledger';
+  heroCopy.appendChild(kicker);
 
   const title = document.createElement('h1');
-  title.textContent = 'Holdings Transformer + eMoney Entry Assistant';
-  title.style.marginBottom = '4px';
-  shell.appendChild(title);
+  title.className = 'ledger-title';
+  title.textContent = 'Holdings entry, reviewed before one paste.';
+  heroCopy.appendChild(title);
 
   const subtitle = document.createElement('p');
-  subtitle.textContent = 'Local-only CSV review. Generates an eMoney fill snippet; never clicks Save.';
-  subtitle.style.marginTop = '0';
-  subtitle.style.color = '#475569';
-  shell.appendChild(subtitle);
+  subtitle.className = 'ledger-subtitle';
+  subtitle.textContent = 'Load a holdings CSV, review the export gate, then copy one eMoney transfer packet for a single visible paste. No browser script, no extension, no API, no auto-save.';
+  heroCopy.appendChild(subtitle);
+  hero.appendChild(heroCopy);
+
+  const assurance = document.createElement('aside');
+  assurance.className = 'ledger-assurance';
+  assurance.innerHTML = [
+    '<strong>Operator boundary</strong>',
+    '<span>The app prepares values. The operator chooses where to paste. eMoney Save remains outside this tool.</span>',
+  ].join('');
+  hero.appendChild(assurance);
+  shell.appendChild(hero);
 
   const controls = document.createElement('section');
-  controls.style.border = '1px solid #cbd5e1';
-  controls.style.borderRadius = '10px';
-  controls.style.padding = '16px';
-  controls.style.margin = '16px 0';
-  controls.style.background = '#f8fafc';
+  controls.className = 'ledger-panel ledger-load-panel';
 
+  const controlCopy = document.createElement('div');
   const controlTitle = document.createElement('h2');
-  controlTitle.textContent = '1. Load holdings CSV';
-  controlTitle.style.marginTop = '0';
-  controls.appendChild(controlTitle);
+  controlTitle.textContent = 'Load holdings CSV';
+  controlCopy.appendChild(controlTitle);
+
+  const status = document.createElement('p');
+  status.className = 'ledger-status-line';
+  status.textContent = 'No file loaded yet.';
+  controlCopy.appendChild(status);
+
+  const checks = document.createElement('div');
+  checks.className = 'ledger-checks';
+  [
+    ['Input', 'CSV UTF-8'],
+    ['Storage', 'None'],
+    ['Network', 'No upload'],
+    ['eMoney Save', 'Manual'],
+  ].forEach(([label, value]) => {
+    const check = document.createElement('div');
+    check.className = 'ledger-check';
+    check.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+    checks.appendChild(check);
+  });
+  controlCopy.appendChild(checks);
+  controls.appendChild(controlCopy);
+
+  const actions = document.createElement('div');
+  actions.className = 'ledger-actions';
 
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = '.csv,text/csv';
-  fileInput.style.marginRight = '12px';
-  controls.appendChild(fileInput);
+  fileInput.className = 'ledger-file-input';
+  actions.appendChild(fileInput);
 
   const sampleButton = document.createElement('button');
   sampleButton.type = 'button';
   sampleButton.textContent = 'Load Demo Sample';
-  sampleButton.style.marginRight = '12px';
-  controls.appendChild(sampleButton);
-
-  const status = document.createElement('p');
-  status.textContent = 'No file loaded yet.';
-  status.style.marginBottom = '0';
-  controls.appendChild(status);
-
-  const safety = document.createElement('p');
-  safety.textContent = 'Safety: CSV stays in this browser. No backend, no upload, no auto-save.';
-  safety.style.fontWeight = '600';
-  safety.style.color = '#334155';
-  controls.appendChild(safety);
+  sampleButton.className = 'ledger-button secondary';
+  actions.appendChild(sampleButton);
+  controls.appendChild(actions);
 
   shell.appendChild(controls);
 
@@ -115,19 +154,20 @@ export function renderLocalMvpShell(root: HTMLElement): void {
     const file = fileInput.files?.[0];
     if (!file) return;
     try {
-      setStatus(status, `Loading ${file.name}...`);
+      await stageLoadStatus(status, file.name);
       const text = await file.text();
       runLocalMvp(reviewRoot, text, { sourceFilename: file.name });
-      setStatus(status, `Loaded ${file.name}. Review eligible and blocked rows below.`, 'success');
+      setStatus(status, `${file.name} is ready for review.`, 'success');
     } catch (err) {
       console.error(err);
       setStatus(status, `Could not load CSV: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   };
 
-  sampleButton.onclick = () => {
+  sampleButton.onclick = async () => {
+    await stageLoadStatus(status, 'demo-sample.csv');
     runLocalMvp(reviewRoot, SAMPLE_CSV_INPUT, { sourceFilename: 'demo-sample.csv' });
-    setStatus(status, 'Loaded built-in demo sample. Review eligible rows below.', 'success');
+    setStatus(status, 'Demo sample is ready for review.', 'success');
   };
 
   root.appendChild(shell);

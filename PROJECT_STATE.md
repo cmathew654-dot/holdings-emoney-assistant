@@ -16,9 +16,9 @@ Do not use downloaded ZIP snapshots, such as `C:\Users\Cyril\Downloads\auto-main
 
 This is a local-only Holdings Transformer + eMoney Entry Assistant.
 
-It accepts a specific holdings CSV format, parses it locally, lets the operator review eligible and blocked rows, then generates a copy/paste JavaScript block for Chrome or Edge DevTools on the eMoney Holdings page.
+It accepts a specific holdings CSV format, parses it locally, lets the operator review eligible and blocked rows, then prepares a one-paste tab-delimited transfer packet for visible human-paste entry on the eMoney Holdings page.
 
-The generated snippet stages multiple holding rows in eMoney. The operator must review the staged rows and click Save manually.
+The transfer packet contains one row per eligible holding and exactly ticker, units, and cost basis. The operator clicks the first target eMoney Ticker cell, pastes once, reviews every row, and clicks Save manually in eMoney.
 
 ## Current Demo Path
 
@@ -27,10 +27,11 @@ The generated snippet stages multiple holding rows in eMoney. The operator must 
 3. Load the CSV in the local browser demo.
 4. Review eligible and blocked rows.
 5. Keep blocked rows excluded unless a human intentionally enables the supported override.
-6. Copy the eMoney DevTools snippet.
-7. Paste it into DevTools on the correct eMoney Holdings page.
-8. Review every staged row in eMoney.
-9. Save manually only after review.
+6. Click Copy Batch for eMoney.
+7. Click the first target Ticker cell in eMoney.
+8. Press Ctrl+V once.
+9. Review every row in eMoney.
+10. Save manually only after review.
 
 ## Safety Invariants
 
@@ -41,10 +42,10 @@ The generated snippet stages multiple holding rows in eMoney. The operator must 
 - Human-in-the-loop review is required.
 - Blocked rows remain excluded by default.
 - Ambiguous browser-helper matches must hard-stop.
-- The generated snippet never clicks Save.
-- The generated snippet fills ticker, units, and cost basis only.
+- Batch transfer never clicks, types, controls the browser, injects scripts, or clicks Save.
+- Batch transfer prepares ticker, units, and cost basis only.
 - Market value is reconciliation-only because eMoney calculates value from shares/pricing.
-- Asset class and sector are not manually overwritten by the snippet.
+- Asset class and sector are not manually overwritten by batch transfer.
 
 ## Branch Model
 
@@ -66,9 +67,9 @@ Avoid a long-lived `develop` branch for now. It would add another place for stat
 
 - Direct PDF ingestion is deferred.
 - Direct XLSX runtime ingestion is deferred for the current demo path.
-- The UI is a lightweight local demo shell, not a polished installed app.
-- Browser-helper confidence is based on local tests and the known eMoney Holdings screen behavior; real-browser verification on a safe/test account is still required.
-- The DevTools snippet uses discovered field order and should be treated as supervised assistance, not unattended automation.
+- The UI now supports a Regulated Ledger one-paste transfer packet, with desktop packaging scaffolded but not yet treated as a signed production installer.
+- Browser-helper confidence is based on local tests and the known eMoney Holdings screen behavior; the batch transfer avoids relying on browser injection for the primary workflow.
+- The legacy DevTools snippet helper still exists for backward-compatible engineering tests, but it is no longer the primary operator path.
 
 ## Cleanup Already Completed
 

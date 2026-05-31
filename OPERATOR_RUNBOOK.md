@@ -33,21 +33,26 @@ Use override only after manual validation of identity/data correctness.
 4. Do not use `Last Updated` as acquisition date; it is statement/as-of context only.
 5. Expect `$CASH$` rows and zero-price/nonzero-value rows to be blocked by default.
 
-## eMoney snippet flow
+## One-paste eMoney transfer flow
 1. In the review/export UI, keep override OFF first.
-2. Click **Copy eMoney DevTools snippet (eligible holdings only)**.
+2. Click **Copy Batch for eMoney**.
 3. Open the correct eMoney Holdings page.
-4. Paste the snippet into Chrome/Edge DevTools Console.
-5. The snippet may click **Add a Holding** and fill ticker, units, and cost basis. Market value is for reconciliation only because eMoney calculates value. It must not click Save.
+4. Click the first target Ticker cell.
+5. Press **Ctrl+V** once.
+6. Review every staged row before saving.
+
+The transfer packet only contains ticker, units, and cost basis. Market value is for reconciliation only because eMoney calculates value. The tool must not click, type, inject scripts, control the browser, or click Save.
 
 ## Required manual verification steps
 1. Confirm the correct account/context before export.
 2. Review blocked reasons and issue list before enabling override.
-3. After helper execution, verify row-level values on page (identifier, units, cost basis, required fields).
+3. After the one-paste transfer, verify each row-level value on page (identifier, units, cost basis, required fields).
 4. Save manually only after verification is complete.
 
 ## What not to do
 - Do not auto-save.
+- Do not use browser scripts as the primary entry path.
+- Do not use browser extensions or eMoney API access for this workaround.
 - Do not ignore warnings.
 - Do not force through ambiguous matches.
 - Do not manually overwrite asset class/sector unless explicitly intentional and policy-approved.
