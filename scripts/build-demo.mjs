@@ -21,8 +21,8 @@ const tscArgs = [
   'emoney-browser-helper.ts',
 ];
 
-const tsc = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const result = spawnSync(tsc, ['tsc', ...tscArgs], { stdio: 'inherit' });
+const tscBin = join(root, 'node_modules', 'typescript', 'bin', 'tsc');
+const result = spawnSync(process.execPath, [tscBin, ...tscArgs], { stdio: 'inherit' });
 if (result.status !== 0) {
   process.exit(result.status ?? 1);
 }
