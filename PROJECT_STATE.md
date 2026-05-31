@@ -2,7 +2,7 @@
 
 ## Single Source Of Truth
 
-The canonical source of truth is the GitHub repository `cmathew654-dot/auto` on branch `main`.
+The canonical source of truth is the GitHub repository `cmathew654-dot/holdings-emoney-assistant` on branch `main`.
 
 The current canonical local clone is:
 
@@ -59,7 +59,7 @@ Avoid a long-lived `develop` branch for now. It would add another place for stat
 ## What Is Not Canonical Right Now
 
 - `C:\Users\Cyril\Downloads\auto-main\auto-main`: ZIP snapshot, not a real working repo.
-- `cmathew654-dot/emoney-injector`: empty placeholder repo.
+- `cmathew654-dot/emoney-injector`: archived empty placeholder repo.
 - `C:\Users\Cyril\Projects\holdings-transformer`: larger local lab/workbench with desktop and Playwright writer ideas; useful future work, but not the demo source of truth.
 
 ## Current Limitations
@@ -70,9 +70,12 @@ Avoid a long-lived `develop` branch for now. It would add another place for stat
 - Browser-helper confidence is based on local tests and the known eMoney Holdings screen behavior; real-browser verification on a safe/test account is still required.
 - The DevTools snippet uses discovered field order and should be treated as supervised assistance, not unattended automation.
 
+## Cleanup Already Completed
+
+- Renamed `cmathew654-dot/auto` to `cmathew654-dot/holdings-emoney-assistant`.
+- Archived the empty `cmathew654-dot/emoney-injector` placeholder.
+
 ## Optional Later Cleanup
 
-1. Rename `cmathew654-dot/auto` to a clearer repository name such as `holdings-emoney-assistant`.
-2. Archive or delete the empty `cmathew654-dot/emoney-injector` placeholder.
-3. Move or archive downloaded ZIP snapshots so they are not mistaken for working repos.
-4. Decide later whether the larger local `holdings-transformer` workbench should be migrated into this repo or kept as a separate future project.
+1. Move or archive downloaded ZIP snapshots so they are not mistaken for working repos.
+2. Decide later whether the larger local `holdings-transformer` workbench should be migrated into this repo or kept as a separate future project.
