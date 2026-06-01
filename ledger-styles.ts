@@ -423,24 +423,62 @@ export function installRegulatedLedgerStyles(): void {
       word-break: break-word;
     }
 
+    .bookmark-installer {
+      border: 2px solid #2c261c;
+      border-radius: 8px;
+      padding: 16px;
+      background: linear-gradient(180deg, #fff4ce, #f7e8bd);
+      box-shadow: inset 0 0 0 1px rgba(255, 250, 240, 0.7);
+    }
+
+    .bookmark-installer span {
+      display: block;
+      color: #6f5729;
+      font-size: 12px;
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .bookmark-installer strong {
+      display: block;
+      margin-top: 6px;
+      font-family: "Georgia", "Times New Roman", serif;
+      font-size: 31px;
+      line-height: 1;
+    }
+
+    .bookmark-installer p {
+      color: #4e432e;
+      line-height: 1.45;
+    }
+
     .bookmarklet-link {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: center;
-      margin-top: 12px;
-      border: 1px solid #2c261c;
+      min-height: 74px;
+      margin-top: 14px;
+      border: 2px dashed #fffaf0;
       border-radius: 6px;
       background: #2c261c;
       color: #fffaf0;
-      padding: 10px 12px;
+      padding: 14px;
       font-weight: 900;
+      line-height: 1.2;
+      text-align: center;
       text-decoration: none;
       cursor: grab;
       user-select: none;
+      box-shadow: 0 12px 26px rgba(44, 38, 28, 0.22);
     }
 
     .bookmarklet-link:active {
       cursor: grabbing;
+    }
+
+    .bookmark-actions {
+      margin-top: 10px;
     }
 
     .transfer-copy-state {
@@ -456,12 +494,29 @@ export function installRegulatedLedgerStyles(): void {
       overflow: hidden;
     }
 
+    .output-details {
+      border: 1px solid var(--ledger-line);
+      border-radius: 8px;
+      background: rgba(255, 250, 240, 0.74);
+      padding: 0;
+    }
+
+    .output-details[hidden] { display: none; }
+
+    .output-details summary {
+      cursor: pointer;
+      padding: 12px 14px;
+      color: #51452e;
+      font-weight: 900;
+    }
+
     .output-panel {
       white-space: pre-wrap;
-      border: 1px solid var(--ledger-line);
+      border: 0;
+      border-top: 1px solid var(--ledger-line);
       background: #fffdfa;
       padding: 14px;
-      border-radius: 8px;
+      border-radius: 0 0 8px 8px;
       max-height: 300px;
       overflow: auto;
       margin: 0;

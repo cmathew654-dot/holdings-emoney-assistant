@@ -63,6 +63,6 @@ The desktop app uses the same local static workflow inside Tauri/WebView2. It do
 - **`npm` cannot find `package.json`**: you are in the wrong folder. Open Command Prompt inside the repo folder.
 - **`tsc` not recognized**: run `npm install` from the repo folder.
 - **Port 8080 in use**: run `set PORT=8081` then `npm run start:demo`, and open `http://localhost:8081/`.
-- **Clipboard blocked**: manually copy the JSON fill packet from the output panel, then paste it into the Fill Button overlay.
+- **Clipboard blocked**: open **Session report**, manually copy the JSON fill packet, then paste it into the Fill Button overlay.
 - **Wrong page/account**: close the overlay, open the correct eMoney Holdings page, and rerun the Fill Button before confirming.
 - **Duplicate detected**: stop. The Fill Button intentionally fills nothing when an existing page ticker/CUSIP matches the packet.

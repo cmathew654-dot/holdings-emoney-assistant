@@ -502,10 +502,25 @@ export function renderReviewExportSurface(
   });
   root.appendChild(metrics);
 
+  const outputDetails = document.createElement('details');
+  outputDetails.className = 'output-details';
+  outputDetails.hidden = true;
+
+  const outputSummary = document.createElement('summary');
+  outputSummary.textContent = 'Session report';
+  outputDetails.appendChild(outputSummary);
+
   const output = document.createElement('pre');
   output.className = 'output-panel';
-  output.textContent = 'Session output appears here after an operator action.';
-  root.appendChild(output);
+  outputDetails.appendChild(output);
+  root.appendChild(outputDetails);
+
+  const showOutput = (message: string, opts?: { summary?: string; open?: boolean }) => {
+    output.textContent = message;
+    outputDetails.hidden = false;
+    outputDetails.open = opts?.open ?? false;
+    outputSummary.textContent = opts?.summary ?? 'Session report available';
+  };
 
   ingestion.accounts.forEach((account) => {
     const accountWrap = document.createElement('section');
@@ -627,9 +642,9 @@ export function renderReviewExportSurface(
       copyState.textContent = activeFillPacket.rowCount === 0
         ? 'No eligible rows are available to copy.'
         : packetCopyStatus === 'copied'
-          ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
+            ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
           : packetCopyStatus === 'blocked'
-            ? 'Clipboard copy was blocked. Manually copy the JSON packet from the output panel, then use the Fill Button paste fallback.'
+            ? 'Clipboard copy was blocked. Open Session report, manually copy the JSON packet, then use the Fill Button paste fallback.'
             : 'Ready to copy. The Fill Button does not need the first eMoney cell selected.';
       left.appendChild(copyState);
 
@@ -645,17 +660,23 @@ export function renderReviewExportSurface(
         packetCopyStatus = copied ? 'copied' : 'blocked';
         copyState.textContent = copied
           ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
-          : 'Clipboard copy was blocked. Manually copy the JSON packet from the output panel, then use the Fill Button paste fallback.';
-        output.textContent = copied
-          ? buildFillPacketReport(activeFillPacket)
-          : `${buildFillPacketReport(activeFillPacket)}\n\nJSON fill packet:\n${serializedPacket}`;
+          : 'Clipboard copy was blocked. Open Session report, manually copy the JSON packet, then use the Fill Button paste fallback.';
+        showOutput(
+          copied
+            ? buildFillPacketReport(activeFillPacket)
+            : `${buildFillPacketReport(activeFillPacket)}\n\nJSON fill packet:\n${serializedPacket}`,
+          {
+            summary: copied ? 'Fill packet copied. Session report' : 'Clipboard blocked. Open packet text',
+            open: !copied,
+          }
+        );
       };
       stepActions.appendChild(copyBtn);
 
       const reportBtn = makeButton('Export Packet Report', 'ledger-button ghost');
       reportBtn.onclick = () => {
         if (!activeFillPacket) return;
-        output.textContent = buildFillPacketReport(activeFillPacket);
+        showOutput(buildFillPacketReport(activeFillPacket), { summary: 'Exported packet report', open: true });
         downloadFillPacketReport(activeFillPacket);
       };
       stepActions.appendChild(reportBtn);
@@ -665,9 +686,15 @@ export function renderReviewExportSurface(
       fallbackBtn.onclick = async () => {
         if (!activeManualBatch || activeManualBatch.rowCount === 0) return;
         const copied = await copyTextToClipboard(activeManualBatch.clipboardText);
-        output.textContent = copied
-          ? buildBatchTransferReport(activeManualBatch)
-          : `${buildBatchTransferReport(activeManualBatch)}\n\nTSV fallback packet:\n${activeManualBatch.clipboardText}`;
+        showOutput(
+          copied
+            ? buildBatchTransferReport(activeManualBatch)
+            : `${buildBatchTransferReport(activeManualBatch)}\n\nTSV fallback packet:\n${activeManualBatch.clipboardText}`,
+          {
+            summary: copied ? 'Manual fallback copied. Session report' : 'Manual fallback copy blocked',
+            open: !copied,
+          }
+        );
       };
       stepActions.appendChild(fallbackBtn);
       left.appendChild(stepActions);
@@ -694,22 +721,40 @@ export function renderReviewExportSurface(
       }
 
       const right = document.createElement('aside');
-      right.className = 'next-value';
+      right.className = 'bookmark-installer';
       const bookmarkletHref = buildEmoneyFillBookmarklet();
-      right.innerHTML = '<span>One-time setup</span><strong>Fill Button</strong><p>Drag the button below to the bookmarks bar. Use it only on the eMoney Holdings page after copying a reviewed packet.</p>';
+      right.innerHTML = '<span>One-time setup</span><strong>Install the bookmark</strong><p>This dark tile is the bookmark. Drag it to the Chrome bookmarks bar, then click it later on the eMoney Holdings page.</p>';
       const bookmarklet = document.createElement('a');
       bookmarklet.href = bookmarkletHref;
       bookmarklet.className = 'bookmarklet-link';
-      bookmarklet.textContent = 'Fill eMoney Holdings';
+      bookmarklet.draggable = true;
+      bookmarklet.textContent = 'DRAG TO BOOKMARKS BAR: Fill eMoney Holdings';
       bookmarklet.title = 'Drag this to your bookmarks bar';
       bookmarklet.onclick = (event) => {
         event.preventDefault();
-        output.textContent = 'Drag "Fill eMoney Holdings" to the browser bookmarks bar. Clicking it inside this app is intentionally ignored.';
+        showOutput('That dark tile is the bookmark. Drag it to Chrome bookmarks bar. Clicking it inside this app is intentionally ignored.', {
+          summary: 'Bookmark install reminder',
+          open: true,
+        });
       };
       right.appendChild(bookmarklet);
+      const bookmarkActions = document.createElement('div');
+      bookmarkActions.className = 'bookmark-actions';
+      const copyBookmarkBtn = makeButton('Copy Bookmark URL', 'ledger-button ghost');
+      copyBookmarkBtn.onclick = async () => {
+        const copied = await copyTextToClipboard(bookmarkletHref);
+        showOutput(
+          copied
+            ? 'Bookmark URL copied. In Chrome, create a new bookmark named "Fill eMoney Holdings" and paste this into the URL field if drag-install is awkward.'
+            : `Clipboard copy was blocked. Manually copy this bookmark URL into a Chrome bookmark:\n${bookmarkletHref}`,
+          { summary: copied ? 'Bookmark URL copied' : 'Bookmark URL copy blocked', open: !copied }
+        );
+      };
+      bookmarkActions.appendChild(copyBookmarkBtn);
+      right.appendChild(bookmarkActions);
       const bookmarkletNote = document.createElement('p');
       bookmarkletNote.className = 'transfer-copy-state';
-      bookmarkletNote.textContent = 'No extension or developer mode. The helper asks for confirmation inside eMoney before filling rows.';
+      bookmarkletNote.textContent = 'This is the bookmark, not the packet copy button. No extension or developer mode.';
       right.appendChild(bookmarkletNote);
 
       layout.appendChild(left);
@@ -734,7 +779,10 @@ export function renderReviewExportSurface(
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
       });
-      output.textContent = `Exported JSON payload for ${payload.holdings.length} eligible holdings.\n\n${JSON.stringify(payload, null, 2)}`;
+      showOutput(`Exported JSON payload for ${payload.holdings.length} eligible holdings.\n\n${JSON.stringify(payload, null, 2)}`, {
+        summary: 'JSON payload export',
+        open: true,
+      });
       opts?.onExport?.(payload);
     };
     actions.appendChild(exportBtn);
@@ -752,11 +800,21 @@ export function renderReviewExportSurface(
       const serializedPacket = serializeEmoneyFillPacket(activeFillPacket);
       const copied = activeFillPacket.rowCount > 0 && await copyTextToClipboard(serializedPacket);
       packetCopyStatus = activeFillPacket.rowCount === 0 ? 'idle' : copied ? 'copied' : 'blocked';
-      output.textContent = copied
-        ? buildFillPacketReport(activeFillPacket)
-        : activeFillPacket.rowCount === 0
-          ? `No eligible holdings are available for account ${activeFillPacket.accountNumber}. Blocked rows excluded: ${activeFillPacket.blockedCount}.`
-          : `${buildFillPacketReport(activeFillPacket)}\n\nClipboard copy was blocked. Manually copy this JSON fill packet:\n${serializedPacket}`;
+      showOutput(
+        copied
+          ? buildFillPacketReport(activeFillPacket)
+          : activeFillPacket.rowCount === 0
+            ? `No eligible holdings are available for account ${activeFillPacket.accountNumber}. Blocked rows excluded: ${activeFillPacket.blockedCount}.`
+            : `${buildFillPacketReport(activeFillPacket)}\n\nClipboard copy was blocked. Manually copy this JSON fill packet:\n${serializedPacket}`,
+        {
+          summary: copied
+            ? 'Fill packet copied. Session report'
+            : activeFillPacket.rowCount === 0
+              ? 'No eligible holdings'
+              : 'Clipboard blocked. Open packet text',
+          open: !copied,
+        }
+      );
       opts?.onExport?.(payload);
       renderTransferPacket();
     };
