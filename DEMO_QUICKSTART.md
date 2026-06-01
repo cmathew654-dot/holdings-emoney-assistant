@@ -5,9 +5,9 @@ This is the shortest path for a room demo of the local-only MVP.
 ## What you are showing
 1. Load a holdings CSV locally.
 2. Review eligible vs blocked rows.
-3. Copy a reviewed eMoney transfer packet.
-4. Paste once into the first target eMoney Holdings Ticker cell.
-5. Verify the staged rows.
+3. Copy a reviewed eMoney Fill Packet.
+4. Click the Fill eMoney Holdings bookmark on the correct eMoney Holdings page.
+5. Confirm the visible overlay so the helper adds rows and fills approved fields.
 6. Review manually. Save manually only if appropriate.
 
 ## Prerequisites
@@ -41,12 +41,14 @@ http://localhost:8080/
 - Market value is shown for reconciliation only; eMoney calculates value.
 
 ## Export for eMoney
-1. Click **Copy Batch for eMoney**.
-2. Go to the correct eMoney Holdings page.
-3. Click the first target **Ticker** cell.
-4. Press **Ctrl+V** once.
-5. Review every row visually.
-6. Save manually only after review.
+1. Drag **Fill eMoney Holdings** from the Fill Packet panel to the browser bookmarks bar once.
+2. Click **Copy eMoney Fill Packet**.
+3. Go to the correct eMoney Holdings page.
+4. Click the **Fill eMoney Holdings** bookmark.
+5. Click **Read Clipboard** in the overlay, or use the paste fallback if Chrome blocks clipboard read.
+6. Confirm fill only after checking the account/row count in the overlay.
+7. Review every row visually.
+8. Save manually only after review.
 
 ## Desktop shell
 For the Windows-first desktop shell, run:
@@ -55,11 +57,12 @@ For the Windows-first desktop shell, run:
 npm run desktop:dev
 ```
 
-The desktop app uses the same local static workflow inside Tauri/WebView2. It does not host eMoney, control Chrome, install an extension, run browser scripts, or use eMoney API access.
+The desktop app uses the same local static workflow inside Tauri/WebView2. It does not host eMoney, install an extension, run a backend, or use eMoney API access. The Fill Button runs only when the operator clicks the bookmark on the visible eMoney Holdings page.
 
 ## Troubleshooting
 - **`npm` cannot find `package.json`**: you are in the wrong folder. Open Command Prompt inside the repo folder.
 - **`tsc` not recognized**: run `npm install` from the repo folder.
 - **Port 8080 in use**: run `set PORT=8081` then `npm run start:demo`, and open `http://localhost:8081/`.
-- **Clipboard blocked**: manually copy the TSV packet from the output panel.
-- **Wrong first eMoney cell**: stop, undo/correct manually in eMoney, and paste again only after the right first Ticker cell is selected. The app does not click, type, or save inside eMoney.
+- **Clipboard blocked**: manually copy the JSON fill packet from the output panel, then paste it into the Fill Button overlay.
+- **Wrong page/account**: close the overlay, open the correct eMoney Holdings page, and rerun the Fill Button before confirming.
+- **Duplicate detected**: stop. The Fill Button intentionally fills nothing when an existing page ticker/CUSIP matches the packet.

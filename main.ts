@@ -81,12 +81,12 @@ export function renderLocalMvpShell(root: HTMLElement): void {
 
   const title = document.createElement('h1');
   title.className = 'ledger-title';
-  title.textContent = 'Holdings entry, reviewed before one paste.';
+  title.textContent = 'Holdings entry, reviewed before fill.';
   heroCopy.appendChild(title);
 
   const subtitle = document.createElement('p');
   subtitle.className = 'ledger-subtitle';
-  subtitle.textContent = 'Load a holdings CSV, review the export gate, then copy one eMoney transfer packet for a single visible paste. No browser script, no extension, no API, no auto-save.';
+  subtitle.textContent = 'Load a holdings CSV, review the export gate, then copy a local eMoney Fill Packet. The Fill Button asks for confirmation inside eMoney before adding rows. No extension, no API, no auto-save.';
   heroCopy.appendChild(subtitle);
   hero.appendChild(heroCopy);
 
@@ -94,7 +94,7 @@ export function renderLocalMvpShell(root: HTMLElement): void {
   assurance.className = 'ledger-assurance';
   assurance.innerHTML = [
     '<strong>Operator boundary</strong>',
-    '<span>The app prepares values. The operator chooses where to paste. eMoney Save remains outside this tool.</span>',
+    '<span>The app prepares reviewed values. The operator launches the Fill Button on the visible eMoney Holdings page. eMoney Save remains outside this tool.</span>',
   ].join('');
   hero.appendChild(assurance);
   shell.appendChild(hero);

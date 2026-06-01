@@ -2,7 +2,11 @@ import type { AccountRecord, HoldingRecord, HoldingsIngestionFile, Issue } from 
 import type { BrowserHoldingInput } from './emoney-browser-helper';
 import {
   buildBatchPastePayload,
+  buildEmoneyFillBookmarklet,
+  buildEmoneyFillPacket,
+  serializeEmoneyFillPacket,
   type BatchPastePayload,
+  type EmoneyFillPacket,
 } from './paste-conductor';
 
 /**
@@ -364,7 +368,7 @@ function formatFieldNames(fields: string[]): string {
 
 function buildBatchTransferReport(batch: BatchPastePayload): string {
   const lines = [
-    'eMoney Transfer Packet',
+    'Manual Spreadsheet Paste Fallback',
     `Account: ${batch.accountNumber} (${batch.accountType})`,
     `Rows prepared: ${batch.rowCount}`,
     `Blocked rows excluded: ${batch.blockedCount}`,
@@ -372,9 +376,9 @@ function buildBatchTransferReport(batch: BatchPastePayload): string {
     `Excluded fields: ${formatFieldNames(batch.excludedFields)}`,
     '',
     'Safety boundary:',
-    '- One reviewed clipboard packet only.',
+    '- Manual spreadsheet-style TSV packet only.',
     '- No browser extension.',
-    '- No browser script or injected helper.',
+    '- No Fill Button or page helper.',
     '- No auto-keystrokes.',
     '- No eMoney Save action.',
     '- No market value, asset class, or sector paste steps.',
@@ -392,12 +396,56 @@ function buildBatchTransferReport(batch: BatchPastePayload): string {
   return lines.join('\n');
 }
 
+function buildFillPacketReport(packet: EmoneyFillPacket): string {
+  const lines = [
+    'eMoney Fill Packet',
+    `Account: ${packet.accountNumber} (${packet.accountType})`,
+    `Created: ${packet.createdAt}`,
+    `Rows prepared: ${packet.rowCount}`,
+    `Blocked rows excluded: ${packet.blockedCount}`,
+    `Included fields: ${formatFieldNames(packet.approvedFields)}`,
+    `Excluded fields: ${formatFieldNames(packet.excludedFields)}`,
+    '',
+    'Operator flow:',
+    '1. Copy this reviewed fill packet.',
+    '2. Open the correct eMoney Holdings page.',
+    '3. Click the Fill eMoney Holdings bookmark.',
+    '4. Confirm the overlay before rows are filled.',
+    '5. Review every row in eMoney and manually Save.',
+    '',
+    'Safety boundary:',
+    '- Runs only when the operator clicks the bookmark.',
+    '- Shows a visible in-page confirmation overlay.',
+    '- Clicks Add a Holding and fills ticker, units, and cost basis only.',
+    '- Does not use a browser extension, backend, eMoney API, or local bridge service.',
+    '- Does not write market value, asset class, sector, description, or Save.',
+    '',
+    'Rows:',
+  ];
+
+  packet.holdings.forEach((row) => {
+    lines.push(`${row.rowNumber}. ${row.ticker}\t${row.units}\t${row.costBasis}`);
+  });
+
+  return lines.join('\n');
+}
+
 function downloadBatchReport(batch: BatchPastePayload): void {
   const blob = new Blob([buildBatchTransferReport(batch)], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = `emoney-transfer-packet-${batch.accountNumber}.txt`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+function downloadFillPacketReport(packet: EmoneyFillPacket): void {
+  const blob = new Blob([buildFillPacketReport(packet)], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `emoney-fill-packet-report-${packet.accountNumber}.txt`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -429,14 +477,14 @@ export function renderReviewExportSurface(
   title.textContent = 'Review ledger';
   headingCopy.appendChild(title);
   const subtitle = document.createElement('p');
-  subtitle.textContent = 'Eligible rows become one reviewed transfer packet for eMoney. Blocked rows stay excluded unless the operator intentionally enables the supported override.';
+  subtitle.textContent = 'Eligible rows become one reviewed Fill Packet for eMoney. Blocked rows stay excluded unless the operator intentionally enables the supported override.';
   headingCopy.appendChild(subtitle);
   heading.appendChild(headingCopy);
   root.appendChild(heading);
 
   const safetyBanner = document.createElement('div');
   safetyBanner.className = 'safety-banner';
-  safetyBanner.textContent = 'Safety boundary: this workflow prepares one clipboard packet only. The operator places it visibly in eMoney and saves manually.';
+  safetyBanner.textContent = 'Safety boundary: the Fill Button runs only after operator confirmation on the visible eMoney Holdings page. eMoney Save remains manual.';
   root.appendChild(safetyBanner);
 
   const metrics = document.createElement('section');
@@ -505,7 +553,8 @@ export function renderReviewExportSurface(
     transferPanel.hidden = true;
     accountWrap.appendChild(transferPanel);
 
-    let activeBatch: BatchPastePayload | null = null;
+    let activeFillPacket: EmoneyFillPacket | null = null;
+    let activeManualBatch: BatchPastePayload | null = null;
     let packetCopyStatus: 'idle' | 'copied' | 'blocked' = 'idle';
 
     const renderRows = () => {
@@ -545,7 +594,7 @@ export function renderReviewExportSurface(
     };
 
     const renderTransferPacket = () => {
-      if (!activeBatch) {
+      if (!activeFillPacket) {
         transferPanel.hidden = true;
         return;
       }
@@ -558,64 +607,76 @@ export function renderReviewExportSurface(
 
       const left = document.createElement('div');
       const panelTitle = document.createElement('h3');
-      panelTitle.textContent = 'Transfer packet';
+      panelTitle.textContent = 'eMoney Fill Packet';
       left.appendChild(panelTitle);
 
       const summary = document.createElement('p');
-      summary.textContent = `${activeBatch.rowCount} eligible rows prepared. ${activeBatch.blockedCount} blocked rows excluded. One paste into eMoney.`;
+      summary.textContent = `${activeFillPacket.rowCount} eligible rows prepared. ${activeFillPacket.blockedCount} blocked rows excluded. The Fill Button creates rows and fills approved fields after confirmation.`;
       left.appendChild(summary);
 
       const fields = document.createElement('p');
-      fields.innerHTML = `<span class="badge ok">Included</span> ${formatFieldNames(activeBatch.includedFields)} &nbsp; <span class="badge bad">Excluded</span> ${formatFieldNames(activeBatch.excludedFields)}`;
+      fields.innerHTML = `<span class="badge ok">Included</span> ${formatFieldNames(activeFillPacket.approvedFields)} &nbsp; <span class="badge bad">Excluded</span> ${formatFieldNames(activeFillPacket.excludedFields)}`;
       left.appendChild(fields);
 
       const boundary = document.createElement('p');
-      boundary.innerHTML = '<span class="badge info">Manual boundary</span> The app copies the reviewed packet only. It does not click, type, control the browser, or save in eMoney.';
+      boundary.innerHTML = '<span class="badge info">Manual boundary</span> The Fill Button runs only when clicked on eMoney, shows a confirmation overlay, never clicks Save, and does not need the first eMoney cell selected.';
       left.appendChild(boundary);
 
       const copyState = document.createElement('p');
       copyState.className = 'transfer-copy-state';
-      copyState.textContent = activeBatch.rowCount === 0
+      copyState.textContent = activeFillPacket.rowCount === 0
         ? 'No eligible rows are available to copy.'
         : packetCopyStatus === 'copied'
-          ? 'Copied and ready for one paste. Click the first eMoney Ticker cell, then press Ctrl+V once.'
+          ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
           : packetCopyStatus === 'blocked'
-            ? 'Clipboard copy was blocked. Manually copy the TSV packet from the output panel, then click the first eMoney Ticker cell and press Ctrl+V once.'
-            : 'Ready to copy. After copying, click the first eMoney Ticker cell, then press Ctrl+V once.';
+            ? 'Clipboard copy was blocked. Manually copy the JSON packet from the output panel, then use the Fill Button paste fallback.'
+            : 'Ready to copy. The Fill Button does not need the first eMoney cell selected.';
       left.appendChild(copyState);
 
       const stepActions = document.createElement('div');
       stepActions.className = 'ledger-actions';
 
-      const copyBtn = makeButton('Copy Batch for eMoney');
-      copyBtn.disabled = activeBatch.rowCount === 0;
+      const copyBtn = makeButton('Copy eMoney Fill Packet');
+      copyBtn.disabled = activeFillPacket.rowCount === 0;
       copyBtn.onclick = async () => {
-        if (!activeBatch || activeBatch.rowCount === 0) return;
-        const copied = await copyTextToClipboard(activeBatch.clipboardText);
+        if (!activeFillPacket || activeFillPacket.rowCount === 0) return;
+        const serializedPacket = serializeEmoneyFillPacket(activeFillPacket);
+        const copied = await copyTextToClipboard(serializedPacket);
         packetCopyStatus = copied ? 'copied' : 'blocked';
         copyState.textContent = copied
-          ? 'Copied and ready for one paste. Click the first eMoney Ticker cell, then press Ctrl+V once.'
-          : 'Clipboard copy was blocked. Manually copy the TSV packet from the output panel, then click the first eMoney Ticker cell and press Ctrl+V once.';
+          ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
+          : 'Clipboard copy was blocked. Manually copy the JSON packet from the output panel, then use the Fill Button paste fallback.';
         output.textContent = copied
-          ? buildBatchTransferReport(activeBatch)
-          : `${buildBatchTransferReport(activeBatch)}\n\nTSV clipboard packet:\n${activeBatch.clipboardText}`;
+          ? buildFillPacketReport(activeFillPacket)
+          : `${buildFillPacketReport(activeFillPacket)}\n\nJSON fill packet:\n${serializedPacket}`;
       };
       stepActions.appendChild(copyBtn);
 
       const reportBtn = makeButton('Export Packet Report', 'ledger-button ghost');
       reportBtn.onclick = () => {
-        if (!activeBatch) return;
-        output.textContent = buildBatchTransferReport(activeBatch);
-        downloadBatchReport(activeBatch);
+        if (!activeFillPacket) return;
+        output.textContent = buildFillPacketReport(activeFillPacket);
+        downloadFillPacketReport(activeFillPacket);
       };
       stepActions.appendChild(reportBtn);
+
+      const fallbackBtn = makeButton('Copy Manual Spreadsheet Paste Fallback', 'ledger-button ghost');
+      fallbackBtn.disabled = !activeManualBatch || activeManualBatch.rowCount === 0;
+      fallbackBtn.onclick = async () => {
+        if (!activeManualBatch || activeManualBatch.rowCount === 0) return;
+        const copied = await copyTextToClipboard(activeManualBatch.clipboardText);
+        output.textContent = copied
+          ? buildBatchTransferReport(activeManualBatch)
+          : `${buildBatchTransferReport(activeManualBatch)}\n\nTSV fallback packet:\n${activeManualBatch.clipboardText}`;
+      };
+      stepActions.appendChild(fallbackBtn);
       left.appendChild(stepActions);
 
       const preview = document.createElement('table');
       preview.className = 'holdings-table packet-preview';
       preview.innerHTML = '<thead><tr><th>Row</th><th>Ticker</th><th>Units</th><th>Cost Basis</th></tr></thead>';
       const previewBody = document.createElement('tbody');
-      activeBatch.previewRows.slice(0, 8).forEach((previewRow) => {
+      activeFillPacket.holdings.slice(0, 8).forEach((previewRow) => {
         const tr = document.createElement('tr');
         appendCell(tr, String(previewRow.rowNumber));
         appendCell(tr, previewRow.ticker);
@@ -625,16 +686,31 @@ export function renderReviewExportSurface(
       });
       preview.appendChild(previewBody);
       left.appendChild(preview);
-      if (activeBatch.previewRows.length > 8) {
+      if (activeFillPacket.holdings.length > 8) {
         const more = document.createElement('p');
         more.className = 'transfer-copy-state';
-        more.textContent = `Previewing first 8 rows. ${activeBatch.previewRows.length - 8} more rows are included in the copied packet.`;
+        more.textContent = `Previewing first 8 rows. ${activeFillPacket.holdings.length - 8} more rows are included in the copied packet.`;
         left.appendChild(more);
       }
 
       const right = document.createElement('aside');
       right.className = 'next-value';
-      right.innerHTML = '<span>Clipboard shape</span><strong>Ticker + Units + Cost Basis</strong><p>Rows are tab-delimited. No header row. No market value.</p>';
+      const bookmarkletHref = buildEmoneyFillBookmarklet();
+      right.innerHTML = '<span>One-time setup</span><strong>Fill Button</strong><p>Drag the button below to the bookmarks bar. Use it only on the eMoney Holdings page after copying a reviewed packet.</p>';
+      const bookmarklet = document.createElement('a');
+      bookmarklet.href = bookmarkletHref;
+      bookmarklet.className = 'bookmarklet-link';
+      bookmarklet.textContent = 'Fill eMoney Holdings';
+      bookmarklet.title = 'Drag this to your bookmarks bar';
+      bookmarklet.onclick = (event) => {
+        event.preventDefault();
+        output.textContent = 'Drag "Fill eMoney Holdings" to the browser bookmarks bar. Clicking it inside this app is intentionally ignored.';
+      };
+      right.appendChild(bookmarklet);
+      const bookmarkletNote = document.createElement('p');
+      bookmarkletNote.className = 'transfer-copy-state';
+      bookmarkletNote.textContent = 'No extension or developer mode. The helper asks for confirmation inside eMoney before filling rows.';
+      right.appendChild(bookmarkletNote);
 
       layout.appendChild(left);
       layout.appendChild(right);
@@ -642,7 +718,8 @@ export function renderReviewExportSurface(
     };
 
     overrideInput.onchange = () => {
-      activeBatch = null;
+      activeFillPacket = null;
+      activeManualBatch = null;
       packetCopyStatus = 'idle';
       renderSummary();
       renderRows();
@@ -662,7 +739,7 @@ export function renderReviewExportSurface(
     };
     actions.appendChild(exportBtn);
 
-    const conductorBtn = makeButton('Copy Batch for eMoney');
+    const conductorBtn = makeButton('Copy eMoney Fill Packet');
     conductorBtn.onclick = async () => {
       const payload = toAssistantPayloadForAccount(account, {
         allowManualOverride: overrideInput.checked,
@@ -670,14 +747,16 @@ export function renderReviewExportSurface(
       const summary = buildAccountPreflightSummary(account, {
         allowManualOverride: overrideInput.checked,
       });
-      activeBatch = buildBatchPastePayload(payload, { blockedCount: summary.blockedCount });
-      const copied = activeBatch.rowCount > 0 && await copyTextToClipboard(activeBatch.clipboardText);
-      packetCopyStatus = activeBatch.rowCount === 0 ? 'idle' : copied ? 'copied' : 'blocked';
+      activeFillPacket = buildEmoneyFillPacket(payload, { blockedCount: summary.blockedCount });
+      activeManualBatch = buildBatchPastePayload(payload, { blockedCount: summary.blockedCount });
+      const serializedPacket = serializeEmoneyFillPacket(activeFillPacket);
+      const copied = activeFillPacket.rowCount > 0 && await copyTextToClipboard(serializedPacket);
+      packetCopyStatus = activeFillPacket.rowCount === 0 ? 'idle' : copied ? 'copied' : 'blocked';
       output.textContent = copied
-        ? buildBatchTransferReport(activeBatch)
-        : activeBatch.rowCount === 0
-          ? `No eligible holdings are available for account ${activeBatch.accountNumber}. Blocked rows excluded: ${activeBatch.blockedCount}.`
-          : `${buildBatchTransferReport(activeBatch)}\n\nClipboard copy was blocked. Manually copy this TSV packet:\n${activeBatch.clipboardText}`;
+        ? buildFillPacketReport(activeFillPacket)
+        : activeFillPacket.rowCount === 0
+          ? `No eligible holdings are available for account ${activeFillPacket.accountNumber}. Blocked rows excluded: ${activeFillPacket.blockedCount}.`
+          : `${buildFillPacketReport(activeFillPacket)}\n\nClipboard copy was blocked. Manually copy this JSON fill packet:\n${serializedPacket}`;
       opts?.onExport?.(payload);
       renderTransferPacket();
     };

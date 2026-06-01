@@ -3,6 +3,9 @@ const assert = require('node:assert/strict');
 
 const {
   buildBatchPastePayload,
+  buildEmoneyFillBookmarklet,
+  buildEmoneyFillButtonScript,
+  buildEmoneyFillPacket,
   buildPasteConductorSession,
   getCurrentTransferStep,
   advanceTransferSession,
@@ -82,6 +85,86 @@ test('empty batch paste payload is copy-safe', () => {
   assert.equal(batch.blockedCount, 3);
   assert.equal(batch.clipboardText, '');
   assert.deepEqual(batch.previewRows, []);
+});
+
+test('buildEmoneyFillPacket creates reviewed bookmarklet packet for eligible holdings', () => {
+  const packet = buildEmoneyFillPacket(payload([
+    holding({ ticker: 'AAPL', cusip: '037833100', units: 10, costBasis: 1450, marketValue: 3000 }),
+    holding({ ticker: 'MSFT', units: 5.25, costBasis: 1800.5, marketValue: 2500 }),
+  ]), {
+    blockedCount: 2,
+    createdAt: '2026-05-31T12:00:00.000Z',
+  });
+
+  assert.equal(packet.schemaVersion, 'emoney-fill-packet/v1');
+  assert.equal(packet.createdAt, '2026-05-31T12:00:00.000Z');
+  assert.equal(packet.accountNumber, '123456789');
+  assert.equal(packet.rowCount, 2);
+  assert.equal(packet.blockedCount, 2);
+  assert.deepEqual(packet.approvedFields, ['ticker', 'units', 'costBasis']);
+  assert.deepEqual(packet.excludedFields, ['marketValue', 'assetClass', 'sector', 'save']);
+  assert.deepEqual(packet.holdings, [
+    { rowNumber: 1, ticker: 'AAPL', cusip: '037833100', units: '10', costBasis: '1450' },
+    { rowNumber: 2, ticker: 'MSFT', cusip: '', units: '5.25', costBasis: '1800.5' },
+  ]);
+});
+
+test('buildEmoneyFillPacket never serializes market value, asset class, sector, description, or save data', () => {
+  const packet = buildEmoneyFillPacket(payload([
+    holding({
+      ticker: 'AAPL',
+      cusip: '037833100',
+      description: 'Apple Inc',
+      units: 10,
+      costBasis: 1450,
+      marketValue: 3000,
+      assetClass: 'Equity',
+      sector: 'Technology',
+      save: 'Save',
+    }),
+  ]), { createdAt: '2026-05-31T12:00:00.000Z' });
+
+  const holdingData = JSON.stringify(packet.holdings);
+  assert.match(holdingData, /AAPL/);
+  assert.match(holdingData, /037833100/);
+  assert.doesNotMatch(holdingData, /3000|Apple Inc|Equity|Technology|Save/);
+  assert.deepEqual(packet.excludedFields, ['marketValue', 'assetClass', 'sector', 'save']);
+});
+
+test('empty eMoney fill packet is not actionable', () => {
+  const packet = buildEmoneyFillPacket(payload([]), {
+    blockedCount: 3,
+    createdAt: '2026-05-31T12:00:00.000Z',
+  });
+
+  assert.equal(packet.rowCount, 0);
+  assert.equal(packet.blockedCount, 3);
+  assert.deepEqual(packet.holdings, []);
+});
+
+test('buildEmoneyFillButtonScript emits guarded bookmarklet runtime with clipboard fallback', () => {
+  const script = buildEmoneyFillButtonScript();
+
+  assert.match(script, /Fill eMoney Holdings/);
+  assert.match(script, /navigator\.clipboard\.readText/);
+  assert.match(script, /Paste packet manually/);
+  assert.match(script, /Add a Holding/i);
+  assert.match(script, /expected eMoney Holdings page/i);
+  assert.match(script, /duplicate/i);
+  assert.match(script, /Save remains manual/i);
+  assert.doesNotMatch(script, /activeElement/);
+  assert.doesNotMatch(script, /save[^\n;]*\.click/i);
+  assert.doesNotMatch(script, /setValue\([^)]*market/i);
+  assert.doesNotMatch(script, /setValue\([^)]*asset/i);
+  assert.doesNotMatch(script, /setValue\([^)]*sector/i);
+  assert.doesNotThrow(() => new Function(script));
+});
+
+test('buildEmoneyFillBookmarklet produces installable javascript URL', () => {
+  const bookmarklet = buildEmoneyFillBookmarklet();
+
+  assert.match(bookmarklet, /^javascript:/);
+  assert.match(decodeURIComponent(bookmarklet.slice('javascript:'.length)), /Fill eMoney Holdings/);
 });
 
 test('buildPasteConductorSession creates only human-paste steps for eligible holdings', () => {

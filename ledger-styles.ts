@@ -423,6 +423,26 @@ export function installRegulatedLedgerStyles(): void {
       word-break: break-word;
     }
 
+    .bookmarklet-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 12px;
+      border: 1px solid #2c261c;
+      border-radius: 6px;
+      background: #2c261c;
+      color: #fffaf0;
+      padding: 10px 12px;
+      font-weight: 900;
+      text-decoration: none;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .bookmarklet-link:active {
+      cursor: grabbing;
+    }
+
     .transfer-copy-state {
       color: var(--ledger-muted);
       min-height: 22px;
