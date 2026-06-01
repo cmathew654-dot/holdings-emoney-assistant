@@ -723,16 +723,17 @@ export function renderReviewExportSurface(
       const right = document.createElement('aside');
       right.className = 'bookmark-installer';
       const bookmarkletHref = buildEmoneyFillBookmarklet();
-      right.innerHTML = '<span>One-time setup</span><strong>Install the bookmark</strong><p>This dark tile is the bookmark. Drag it to the Chrome bookmarks bar, then click it later on the eMoney Holdings page.</p>';
+      right.innerHTML = '<span>One-time setup</span><strong>Install Fill Button</strong><p>Drag the Fill eMoney Holdings button to your browser bookmarks bar. After that, click the saved bookmark on the eMoney Holdings page.</p>';
       const bookmarklet = document.createElement('a');
       bookmarklet.href = bookmarkletHref;
       bookmarklet.className = 'bookmarklet-link';
       bookmarklet.draggable = true;
-      bookmarklet.textContent = 'DRAG TO BOOKMARKS BAR: Fill eMoney Holdings';
-      bookmarklet.title = 'Drag this to your bookmarks bar';
+      bookmarklet.textContent = 'Fill eMoney Holdings';
+      bookmarklet.title = 'Fill eMoney Holdings';
+      bookmarklet.setAttribute('aria-label', 'Fill eMoney Holdings');
       bookmarklet.onclick = (event) => {
         event.preventDefault();
-        showOutput('That dark tile is the bookmark. Drag it to Chrome bookmarks bar. Clicking it inside this app is intentionally ignored.', {
+        showOutput('Drag the Fill eMoney Holdings button to your browser bookmarks bar. Clicking it inside this app is intentionally ignored.', {
           summary: 'Bookmark install reminder',
           open: true,
         });
@@ -754,7 +755,7 @@ export function renderReviewExportSurface(
       right.appendChild(bookmarkActions);
       const bookmarkletNote = document.createElement('p');
       bookmarkletNote.className = 'transfer-copy-state';
-      bookmarkletNote.textContent = 'This is the bookmark, not the packet copy button. No extension or developer mode.';
+      bookmarkletNote.textContent = 'The saved bookmark should be named Fill eMoney Holdings. No extension or developer mode.';
       right.appendChild(bookmarkletNote);
 
       layout.appendChild(left);

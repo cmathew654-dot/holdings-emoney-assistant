@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const {
   getHoldingEligibility,
@@ -183,4 +184,23 @@ test('buildEmoneyDevtoolsSnippet emits eligible rows as paste-ready eMoney fill 
   assert.doesNotMatch(snippet, /\$CASH\$/);
   assert.doesNotMatch(snippet, /"assetClass"|"sector"|fields\.assetClass|fields\.sector/);
   assert.doesNotMatch(snippet, /save[^\n;]*\.click/i);
+});
+
+test('bookmark install UI keeps dragged bookmark name clean', () => {
+  const source = fs.readFileSync('review-export-surface.ts', 'utf8');
+
+  assert.match(source, /<strong>Install Fill Button<\/strong>/);
+  assert.match(source, /Drag the Fill eMoney Holdings button to your browser bookmarks bar\./);
+  assert.match(source, /bookmarklet\.textContent = 'Fill eMoney Holdings'/);
+  assert.match(source, /bookmarklet\.title = 'Fill eMoney Holdings'/);
+  assert.match(source, /bookmarklet\.setAttribute\('aria-label', 'Fill eMoney Holdings'\)/);
+  assert.doesNotMatch(source, /DRAG TO BOOKMARKS BAR/);
+});
+
+test('desktop package version is bumped for bookmark label cleanup', () => {
+  assert.match(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'), /"version": "0\.1\.3"/);
+  assert.match(fs.readFileSync('src-tauri/Cargo.toml', 'utf8'), /version = "0\.1\.3"/);
+
+  const lock = fs.readFileSync('src-tauri/Cargo.lock', 'utf8');
+  assert.match(lock, /name = "holdings-emoney-assistant"\r?\nversion = "0\.1\.3"/);
 });
