@@ -40,7 +40,13 @@ export interface AccountRowDisplayItem {
   holding: HoldingRecord;
   eligible: boolean;
   blockedWhy: string;
+  blockedIssueCodes: string[];
   marketValue: number | null;
+}
+
+export interface ReviewExportSurfaceOptions {
+  onExport?: (payload: AssistantAccountPayload) => void;
+  onPacketPrepared?: (event: { accountNumber: string; rowCount: number; copied: boolean }) => void;
 }
 
 export const MANUAL_REVIEW_REQUIRED_CODES = new Set<Issue['code']>([
@@ -182,7 +188,7 @@ export function buildEmoneyDevtoolsSnippet(payload: AssistantAccountPayload): st
     }));
 
   return `// eMoney holdings fill snippet generated locally for account ${payload.accountNumber}.
-// Paste this into Chrome/Edge DevTools on the correct eMoney Holdings page.
+// Engineering fallback only. The operator path is Copy eMoney Fill Packet + Fill eMoney Holdings bookmark.
 // Safety: clicks Add a Holding and fills ticker, units, and cost basis only. It NEVER clicks Save.
 // Market value stays in the row data for operator reconciliation; eMoney calculates value from shares/pricing.
 (async () => {
@@ -315,10 +321,11 @@ export function getAccountRowDisplay(
 ): AccountRowDisplayItem[] {
   return account.holdings.map((holding) => {
     const eligibility = getHoldingEligibility(holding, opts);
-    return {
+      return {
       holding,
       eligible: eligibility.eligible,
       blockedWhy: eligibility.reasons.join('; ') || 'n/a',
+      blockedIssueCodes: eligibility.blockedIssueCodes,
       marketValue: holding.marketValue ?? null,
     };
   });
@@ -364,6 +371,66 @@ function formatFieldNames(fields: string[]): string {
     save: 'Save',
   };
   return fields.map((field) => labels[field] ?? field).join(', ');
+}
+
+function formatClock(date: Date): string {
+  return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function reasonLabelFromCode(code: string): string {
+  switch (code) {
+    case 'CASH_SPECIAL_HANDLING':
+      return 'Cash position';
+    case 'MISSING_LOOKUP_KEY':
+      return 'Missing ticker';
+    case 'UNMAPPED_ACCOUNT_TYPE':
+      return 'Unsupported type';
+    case 'INVALID_FORMAT':
+      return 'Invalid units';
+    case 'DUPLICATE_HOLDING':
+      return 'Duplicate CUSIP';
+    case 'ZERO_PRICE_NONZERO_VALUE_EXCEPTION':
+      return 'Review pricing';
+    default:
+      return toFriendlyIssueLabel(code).replace(/^\w/, (char) => char.toUpperCase());
+  }
+}
+
+function appendMetric(parent: HTMLElement, label: string, value: string, className = ''): void {
+  const item = document.createElement('div');
+  item.className = `preflight-metric ${className}`.trim();
+  item.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+  parent.appendChild(item);
+}
+
+function appendFieldList(parent: HTMLElement, title: string, fields: string[], className: string): void {
+  const group = document.createElement('div');
+  group.className = `field-list ${className}`;
+  const heading = document.createElement('strong');
+  heading.textContent = title;
+  group.appendChild(heading);
+  const list = document.createElement('ul');
+  fields.forEach((field) => {
+    const item = document.createElement('li');
+    item.textContent = field;
+    list.appendChild(item);
+  });
+  group.appendChild(list);
+  parent.appendChild(group);
+}
+
+function appendReasonChips(cell: HTMLElement, codes: string[], fallback: string): void {
+  if (!codes.length) {
+    cell.textContent = fallback;
+    return;
+  }
+
+  codes.forEach((code) => {
+    const chip = document.createElement('span');
+    chip.className = 'reason-chip';
+    chip.textContent = reasonLabelFromCode(code);
+    cell.appendChild(chip);
+  });
 }
 
 function buildBatchTransferReport(batch: BatchPastePayload): string {
@@ -453,7 +520,7 @@ function downloadFillPacketReport(packet: EmoneyFillPacket): void {
 export function renderReviewExportSurface(
   root: HTMLElement,
   ingestion: HoldingsIngestionFile,
-  opts?: { onExport?: (payload: AssistantAccountPayload) => void }
+  opts?: ReviewExportSurfaceOptions
 ): void {
   root.innerHTML = '';
   root.className = 'review-root';
@@ -470,54 +537,33 @@ export function renderReviewExportSurface(
     { eligible: 0, blocked: 0, warningBearing: 0, holdings: 0 }
   );
 
-  const heading = document.createElement('section');
-  heading.className = 'review-heading';
-  const headingCopy = document.createElement('div');
-  const title = document.createElement('h2');
-  title.textContent = 'Review ledger';
-  headingCopy.appendChild(title);
-  const subtitle = document.createElement('p');
-  subtitle.textContent = 'Eligible rows become one reviewed Fill Packet for eMoney. Blocked rows stay excluded unless the operator intentionally enables the supported override.';
-  headingCopy.appendChild(subtitle);
-  heading.appendChild(headingCopy);
-  root.appendChild(heading);
-
-  const safetyBanner = document.createElement('div');
-  safetyBanner.className = 'safety-banner';
-  safetyBanner.textContent = 'Safety boundary: the Fill Button runs only after operator confirmation on the visible eMoney Holdings page. eMoney Save remains manual.';
-  root.appendChild(safetyBanner);
-
-  const metrics = document.createElement('section');
-  metrics.className = 'metric-strip';
-  [
-    ['Accounts', String(ingestion.accounts.length)],
-    ['Eligible', String(overall.eligible)],
-    ['Blocked', String(overall.blocked)],
-    ['Warnings', String(overall.warningBearing + ingestion.issues.length)],
-  ].forEach(([label, value]) => {
-    const card = document.createElement('div');
-    card.className = 'metric-card';
-    card.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
-    metrics.appendChild(card);
-  });
-  root.appendChild(metrics);
+  const globalPreflight = document.createElement('section');
+  globalPreflight.className = 'preflight-summary preflight-summary-global';
+  appendMetric(globalPreflight, 'Eligible rows', String(overall.eligible), 'is-eligible');
+  appendMetric(globalPreflight, 'Blocked rows', String(overall.blocked), 'is-blocked');
+  appendMetric(globalPreflight, 'Warnings', String(overall.warningBearing + ingestion.issues.length), 'is-warning');
+  appendMetric(
+    globalPreflight,
+    'Account number',
+    ingestion.accounts.length === 1 ? ingestion.accounts[0].accountNumber : `${ingestion.accounts.length} accounts`,
+    'is-account'
+  );
+  root.appendChild(globalPreflight);
 
   const outputDetails = document.createElement('details');
   outputDetails.className = 'output-details';
-  outputDetails.hidden = true;
 
   const outputSummary = document.createElement('summary');
-  outputSummary.textContent = 'Session report';
+  outputSummary.textContent = 'Session Report';
   outputDetails.appendChild(outputSummary);
 
   const output = document.createElement('pre');
   output.className = 'output-panel';
+  output.textContent = 'No session report generated yet.';
   outputDetails.appendChild(output);
-  root.appendChild(outputDetails);
 
   const showOutput = (message: string, opts?: { summary?: string; open?: boolean }) => {
     output.textContent = message;
-    outputDetails.hidden = false;
     outputDetails.open = opts?.open ?? false;
     outputSummary.textContent = opts?.summary ?? 'Session report available';
   };
@@ -547,13 +593,23 @@ export function renderReviewExportSurface(
     overrideLabel.appendChild(document.createTextNode('Override safety gate for manual-review-required codes (use carefully)'));
     accountWrap.appendChild(overrideLabel);
 
-    const preflight = document.createElement('p');
+    const preflight = document.createElement('section');
     accountWrap.appendChild(preflight);
+
+    const accountBody = document.createElement('div');
+    accountBody.className = 'account-body';
+
+    const accountMain = document.createElement('div');
+    accountMain.className = 'account-main';
+    const tableHeading = document.createElement('h3');
+    tableHeading.className = 'table-heading';
+    tableHeading.textContent = 'Holdings Review';
+    accountMain.appendChild(tableHeading);
 
     const table = document.createElement('table');
     table.className = 'holdings-table';
     const thead = document.createElement('thead');
-    thead.innerHTML = '<tr><th>Status</th><th>Ticker</th><th>CUSIP</th><th>Units</th><th>Cost Basis</th><th>Market Value</th><th>Blocked Why</th><th>Issues</th></tr>';
+    thead.innerHTML = '<tr><th>Status</th><th>Ticker</th><th>CUSIP</th><th>Units</th><th>Cost Basis</th><th>Market Value <span>reconciliation only</span></th><th>Blocked Reason</th><th>Issues</th></tr>';
     table.appendChild(thead);
 
     const tbody = document.createElement('tbody');
@@ -561,27 +617,48 @@ export function renderReviewExportSurface(
     const tableWrap = document.createElement('div');
     tableWrap.className = 'holdings-table-wrap';
     tableWrap.appendChild(table);
-    accountWrap.appendChild(tableWrap);
+    accountMain.appendChild(tableWrap);
 
     const transferPanel = document.createElement('section');
-    transferPanel.className = 'transfer-panel';
-    transferPanel.hidden = true;
-    accountWrap.appendChild(transferPanel);
+    transferPanel.className = 'transfer-rail';
+    accountBody.appendChild(accountMain);
+    accountBody.appendChild(transferPanel);
+    accountWrap.appendChild(accountBody);
 
     let activeFillPacket: EmoneyFillPacket | null = null;
     let activeManualBatch: BatchPastePayload | null = null;
     let packetCopyStatus: 'idle' | 'copied' | 'blocked' = 'idle';
+    let packetCopiedAt: Date | null = null;
+
+    const buildActivePackets = () => {
+      const payload = toAssistantPayloadForAccount(account, {
+        allowManualOverride: overrideInput.checked,
+      });
+      const summary = buildAccountPreflightSummary(account, {
+        allowManualOverride: overrideInput.checked,
+      });
+      activeFillPacket = buildEmoneyFillPacket(payload, { blockedCount: summary.blockedCount });
+      activeManualBatch = buildBatchPastePayload(payload, { blockedCount: summary.blockedCount });
+      return { payload, summary };
+    };
 
     const renderRows = () => {
       tbody.innerHTML = '';
       const rowDisplay = getAccountRowDisplay(account, { allowManualOverride: overrideInput.checked });
-      rowDisplay.forEach(({ holding, eligible, blockedWhy }) => {
+      rowDisplay.forEach(({ holding, eligible, blockedWhy, blockedIssueCodes }, index) => {
         const tr = document.createElement('tr');
         tr.className = eligible ? 'row-eligible' : 'row-blocked';
+        tr.tabIndex = 0;
+        tr.style.animationDelay = `${Math.min(index * 24, 240)}ms`;
+        tr.setAttribute('aria-label', `${eligible ? 'Eligible' : 'Blocked'} holding ${holding.ticker ?? holding.cusip ?? 'without lookup key'}`);
+        if (!eligible) {
+          tr.title = blockedWhy;
+          tr.dataset.blockedDetail = blockedWhy;
+        }
 
         const statusCell = document.createElement('td');
         const badge = document.createElement('span');
-        badge.className = `badge ${eligible ? 'ok' : 'bad'}`;
+        badge.className = `status-pill ${eligible ? 'ok' : 'bad'}`;
         badge.textContent = eligible ? 'Eligible' : 'Blocked';
         statusCell.appendChild(badge);
         tr.appendChild(statusCell);
@@ -591,8 +668,24 @@ export function renderReviewExportSurface(
         appendCell(tr, holding.units == null ? '' : String(holding.units));
         appendCell(tr, holding.costBasis == null ? '' : String(holding.costBasis));
         appendCell(tr, holding.marketValue == null ? '' : String(holding.marketValue));
-        appendCell(tr, blockedWhy);
-        appendCell(tr, formatIssues(holding.issues));
+        const reasonCell = document.createElement('td');
+        reasonCell.className = 'blocked-reason-cell';
+        reasonCell.dataset.detail = eligible ? '' : blockedWhy;
+        appendReasonChips(reasonCell, eligible ? [] : blockedIssueCodes, eligible ? '-' : blockedWhy);
+        tr.appendChild(reasonCell);
+
+        const issueCell = document.createElement('td');
+        issueCell.className = 'issues-cell';
+        const issueText = formatIssues(holding.issues);
+        issueCell.appendChild(document.createTextNode(issueText));
+        if (holding.issues.length) {
+          const info = document.createElement('span');
+          info.className = 'issue-info';
+          info.title = issueText;
+          info.textContent = 'i';
+          issueCell.appendChild(info);
+        }
+        tr.appendChild(issueCell);
         tbody.appendChild(tr);
       });
     };
@@ -602,65 +695,60 @@ export function renderReviewExportSurface(
       const blockedReasonText = Object.keys(summary.blockedReasonsByCode).length
         ? JSON.stringify(summary.blockedReasonsByCode)
         : '{}';
-      preflight.className = `preflight ${summary.blockedCount > 0 ? 'blocked' : 'clean'}`;
-      preflight.textContent = overrideInput.checked
-        ? `Override ON: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked. Blocked reason counts: ${blockedReasonText}`
-        : `Override OFF: ${summary.eligibleCount} eligible, ${summary.blockedCount} blocked. Blocked reason counts: ${blockedReasonText}`;
+      preflight.className = `preflight-summary account-preflight ${summary.blockedCount > 0 ? 'blocked' : 'clean'}`;
+      preflight.innerHTML = '';
+      appendMetric(preflight, 'Eligible rows', String(summary.eligibleCount), 'is-eligible');
+      appendMetric(preflight, 'Blocked rows', String(summary.blockedCount), 'is-blocked');
+      appendMetric(preflight, 'Warnings', String(summary.warningBearingCount), 'is-warning');
+      appendMetric(preflight, 'Account number', account.accountNumber, 'is-account');
+      const overrideState = document.createElement('p');
+      overrideState.className = 'override-state';
+      overrideState.textContent = overrideInput.checked
+        ? `Override ON. Blocked reason counts: ${blockedReasonText}`
+        : `Override OFF. Blocked reason counts: ${blockedReasonText}`;
+      preflight.appendChild(overrideState);
     };
 
     const renderTransferPacket = () => {
-      if (!activeFillPacket) {
-        transferPanel.hidden = true;
-        return;
-      }
-
-      transferPanel.hidden = false;
+      const { payload } = buildActivePackets();
+      if (!activeFillPacket || !activeManualBatch) return;
       transferPanel.innerHTML = '';
 
-      const layout = document.createElement('div');
-      layout.className = 'transfer-grid';
-
-      const left = document.createElement('div');
+      const packetCard = document.createElement('article');
+      packetCard.className = 'rail-card transfer-card';
       const panelTitle = document.createElement('h3');
-      panelTitle.textContent = 'eMoney Fill Packet';
-      left.appendChild(panelTitle);
+      panelTitle.textContent = 'Transfer Packet';
+      packetCard.appendChild(panelTitle);
 
       const summary = document.createElement('p');
-      summary.textContent = `${activeFillPacket.rowCount} eligible rows prepared. ${activeFillPacket.blockedCount} blocked rows excluded. The Fill Button creates rows and fills approved fields after confirmation.`;
-      left.appendChild(summary);
+      summary.textContent = `${activeFillPacket.rowCount} eligible rows prepared. ${activeFillPacket.blockedCount} blocked rows excluded. This packet is used with a browser bookmarklet on the visible eMoney Holdings page.`;
+      packetCard.appendChild(summary);
 
-      const fields = document.createElement('p');
-      fields.innerHTML = `<span class="badge ok">Included</span> ${formatFieldNames(activeFillPacket.approvedFields)} &nbsp; <span class="badge bad">Excluded</span> ${formatFieldNames(activeFillPacket.excludedFields)}`;
-      left.appendChild(fields);
+      const fieldGrid = document.createElement('div');
+      fieldGrid.className = 'field-list-grid';
+      appendFieldList(fieldGrid, 'Included', ['Ticker', 'Units', 'Cost Basis'], 'included');
+      appendFieldList(fieldGrid, 'Excluded', ['Market Value', 'Asset Class', 'Sector', 'Save'], 'excluded');
+      packetCard.appendChild(fieldGrid);
 
       const boundary = document.createElement('p');
-      boundary.innerHTML = '<span class="badge info">Manual boundary</span> The Fill Button runs only when clicked on eMoney, shows a confirmation overlay, never clicks Save, and does not need the first eMoney cell selected.';
-      left.appendChild(boundary);
+      boundary.className = 'manual-boundary';
+      boundary.textContent = 'Save remains manual.';
+      packetCard.appendChild(boundary);
 
-      const copyState = document.createElement('p');
-      copyState.className = 'transfer-copy-state';
-      copyState.textContent = activeFillPacket.rowCount === 0
-        ? 'No eligible rows are available to copy.'
-        : packetCopyStatus === 'copied'
-            ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
-          : packetCopyStatus === 'blocked'
-            ? 'Clipboard copy was blocked. Open Session report, manually copy the JSON packet, then use the Fill Button paste fallback.'
-            : 'Ready to copy. The Fill Button does not need the first eMoney cell selected.';
-      left.appendChild(copyState);
-
-      const stepActions = document.createElement('div');
-      stepActions.className = 'ledger-actions';
-
-      const copyBtn = makeButton('Copy eMoney Fill Packet');
+      const copyBtn = makeButton('Copy eMoney Fill Packet', 'ledger-button full-width');
       copyBtn.disabled = activeFillPacket.rowCount === 0;
       copyBtn.onclick = async () => {
         if (!activeFillPacket || activeFillPacket.rowCount === 0) return;
         const serializedPacket = serializeEmoneyFillPacket(activeFillPacket);
         const copied = await copyTextToClipboard(serializedPacket);
         packetCopyStatus = copied ? 'copied' : 'blocked';
-        copyState.textContent = copied
-          ? 'Fill packet copied. Open eMoney Holdings, click the Fill eMoney Holdings bookmark, then confirm the overlay.'
-          : 'Clipboard copy was blocked. Open Session report, manually copy the JSON packet, then use the Fill Button paste fallback.';
+        packetCopiedAt = copied ? new Date() : null;
+        opts?.onPacketPrepared?.({
+          accountNumber: activeFillPacket.accountNumber,
+          rowCount: activeFillPacket.rowCount,
+          copied,
+        });
+        opts?.onExport?.(payload);
         showOutput(
           copied
             ? buildFillPacketReport(activeFillPacket)
@@ -670,8 +758,78 @@ export function renderReviewExportSurface(
             open: !copied,
           }
         );
+        renderTransferPacket();
       };
-      stepActions.appendChild(copyBtn);
+      packetCard.appendChild(copyBtn);
+
+      const copyState = document.createElement('p');
+      copyState.className = `transfer-copy-state ${packetCopyStatus}`;
+      copyState.textContent = activeFillPacket.rowCount === 0
+        ? 'No eligible rows are available to copy.'
+        : packetCopyStatus === 'copied' && packetCopiedAt
+          ? `Packet copied to clipboard ${formatClock(packetCopiedAt)}`
+          : packetCopyStatus === 'blocked'
+            ? 'Clipboard copy was blocked. Open Session Report and use the paste fallback inside the Fill Button.'
+            : 'Ready to copy a reviewed packet.';
+      packetCard.appendChild(copyState);
+
+      transferPanel.appendChild(packetCard);
+
+      const bookmarkCard = document.createElement('article');
+      bookmarkCard.className = 'rail-card bookmark-installer';
+      const bookmarkletHref = buildEmoneyFillBookmarklet();
+      bookmarkCard.innerHTML = '<span>One-time setup</span><strong>Install Fill Button</strong><p>Drag the Fill eMoney Holdings button to your browser bookmarks bar.</p>';
+      const bookmarklet = document.createElement('a');
+      bookmarklet.href = bookmarkletHref;
+      bookmarklet.className = 'bookmarklet-link';
+      bookmarklet.draggable = true;
+      bookmarklet.textContent = 'Fill eMoney Holdings';
+      bookmarklet.title = 'Fill eMoney Holdings';
+      bookmarklet.setAttribute('aria-label', 'Fill eMoney Holdings');
+      bookmarklet.onclick = (event) => {
+        event.preventDefault();
+        showOutput('Drag the Fill eMoney Holdings button to your browser bookmarks bar. Clicking it inside this app is intentionally ignored.', {
+          summary: 'Bookmark install reminder',
+          open: true,
+        });
+      };
+      bookmarkCard.appendChild(bookmarklet);
+      const bookmarkActions = document.createElement('div');
+      bookmarkActions.className = 'bookmark-actions';
+      const copyBookmarkBtn = makeButton('Copy Bookmark URL', 'ledger-button ghost');
+      copyBookmarkBtn.onclick = async () => {
+        const copied = await copyTextToClipboard(bookmarkletHref);
+        showOutput(
+          copied
+            ? 'Bookmark URL copied. In Chrome, create a new bookmark named "Fill eMoney Holdings" and paste this into the URL field if drag-install is awkward.'
+            : `Clipboard copy was blocked. Manually copy this bookmark URL into a Chrome bookmark:\n${bookmarkletHref}`,
+          { summary: copied ? 'Bookmark URL copied' : 'Bookmark URL copy blocked', open: !copied }
+        );
+      };
+      bookmarkActions.appendChild(copyBookmarkBtn);
+      bookmarkCard.appendChild(bookmarkActions);
+      const bookmarkletNote = document.createElement('p');
+      bookmarkletNote.className = 'transfer-copy-state';
+      bookmarkletNote.textContent = 'The saved bookmark should be named Fill eMoney Holdings. No extension or developer mode.';
+      bookmarkCard.appendChild(bookmarkletNote);
+      transferPanel.appendChild(bookmarkCard);
+
+      const guidance = document.createElement('article');
+      guidance.className = 'rail-card operator-guidance';
+      guidance.innerHTML = [
+        '<strong>Use Chrome or Edge separately.</strong>',
+        '<p>Open the eMoney Holdings page, click the saved bookmark, confirm the overlay, review populated rows, then manually save in eMoney.</p>',
+        '<p><b>Manual save remains explicit in every completion state.</b></p>',
+      ].join('');
+      transferPanel.appendChild(guidance);
+
+      const fallbackDetails = document.createElement('details');
+      fallbackDetails.className = 'fallback-details';
+      const fallbackSummary = document.createElement('summary');
+      fallbackSummary.textContent = 'Manual Spreadsheet Paste Fallback';
+      fallbackDetails.appendChild(fallbackSummary);
+      const fallbackActions = document.createElement('div');
+      fallbackActions.className = 'ledger-actions';
 
       const reportBtn = makeButton('Export Packet Report', 'ledger-button ghost');
       reportBtn.onclick = () => {
@@ -679,7 +837,7 @@ export function renderReviewExportSurface(
         showOutput(buildFillPacketReport(activeFillPacket), { summary: 'Exported packet report', open: true });
         downloadFillPacketReport(activeFillPacket);
       };
-      stepActions.appendChild(reportBtn);
+      fallbackActions.appendChild(reportBtn);
 
       const fallbackBtn = makeButton('Copy Manual Spreadsheet Paste Fallback', 'ledger-button ghost');
       fallbackBtn.disabled = !activeManualBatch || activeManualBatch.rowCount === 0;
@@ -696,77 +854,14 @@ export function renderReviewExportSurface(
           }
         );
       };
-      stepActions.appendChild(fallbackBtn);
-      left.appendChild(stepActions);
-
-      const preview = document.createElement('table');
-      preview.className = 'holdings-table packet-preview';
-      preview.innerHTML = '<thead><tr><th>Row</th><th>Ticker</th><th>Units</th><th>Cost Basis</th></tr></thead>';
-      const previewBody = document.createElement('tbody');
-      activeFillPacket.holdings.slice(0, 8).forEach((previewRow) => {
-        const tr = document.createElement('tr');
-        appendCell(tr, String(previewRow.rowNumber));
-        appendCell(tr, previewRow.ticker);
-        appendCell(tr, previewRow.units);
-        appendCell(tr, previewRow.costBasis);
-        previewBody.appendChild(tr);
-      });
-      preview.appendChild(previewBody);
-      left.appendChild(preview);
-      if (activeFillPacket.holdings.length > 8) {
-        const more = document.createElement('p');
-        more.className = 'transfer-copy-state';
-        more.textContent = `Previewing first 8 rows. ${activeFillPacket.holdings.length - 8} more rows are included in the copied packet.`;
-        left.appendChild(more);
-      }
-
-      const right = document.createElement('aside');
-      right.className = 'bookmark-installer';
-      const bookmarkletHref = buildEmoneyFillBookmarklet();
-      right.innerHTML = '<span>One-time setup</span><strong>Install Fill Button</strong><p>Drag the Fill eMoney Holdings button to your browser bookmarks bar. After that, click the saved bookmark on the eMoney Holdings page.</p>';
-      const bookmarklet = document.createElement('a');
-      bookmarklet.href = bookmarkletHref;
-      bookmarklet.className = 'bookmarklet-link';
-      bookmarklet.draggable = true;
-      bookmarklet.textContent = 'Fill eMoney Holdings';
-      bookmarklet.title = 'Fill eMoney Holdings';
-      bookmarklet.setAttribute('aria-label', 'Fill eMoney Holdings');
-      bookmarklet.onclick = (event) => {
-        event.preventDefault();
-        showOutput('Drag the Fill eMoney Holdings button to your browser bookmarks bar. Clicking it inside this app is intentionally ignored.', {
-          summary: 'Bookmark install reminder',
-          open: true,
-        });
-      };
-      right.appendChild(bookmarklet);
-      const bookmarkActions = document.createElement('div');
-      bookmarkActions.className = 'bookmark-actions';
-      const copyBookmarkBtn = makeButton('Copy Bookmark URL', 'ledger-button ghost');
-      copyBookmarkBtn.onclick = async () => {
-        const copied = await copyTextToClipboard(bookmarkletHref);
-        showOutput(
-          copied
-            ? 'Bookmark URL copied. In Chrome, create a new bookmark named "Fill eMoney Holdings" and paste this into the URL field if drag-install is awkward.'
-            : `Clipboard copy was blocked. Manually copy this bookmark URL into a Chrome bookmark:\n${bookmarkletHref}`,
-          { summary: copied ? 'Bookmark URL copied' : 'Bookmark URL copy blocked', open: !copied }
-        );
-      };
-      bookmarkActions.appendChild(copyBookmarkBtn);
-      right.appendChild(bookmarkActions);
-      const bookmarkletNote = document.createElement('p');
-      bookmarkletNote.className = 'transfer-copy-state';
-      bookmarkletNote.textContent = 'The saved bookmark should be named Fill eMoney Holdings. No extension or developer mode.';
-      right.appendChild(bookmarkletNote);
-
-      layout.appendChild(left);
-      layout.appendChild(right);
-      transferPanel.appendChild(layout);
+      fallbackActions.appendChild(fallbackBtn);
+      fallbackDetails.appendChild(fallbackActions);
+      transferPanel.appendChild(fallbackDetails);
     };
 
     overrideInput.onchange = () => {
-      activeFillPacket = null;
-      activeManualBatch = null;
       packetCopyStatus = 'idle';
+      packetCopiedAt = null;
       renderSummary();
       renderRows();
       renderTransferPacket();
@@ -787,45 +882,15 @@ export function renderReviewExportSurface(
       opts?.onExport?.(payload);
     };
     actions.appendChild(exportBtn);
-
-    const conductorBtn = makeButton('Copy eMoney Fill Packet');
-    conductorBtn.onclick = async () => {
-      const payload = toAssistantPayloadForAccount(account, {
-        allowManualOverride: overrideInput.checked,
-      });
-      const summary = buildAccountPreflightSummary(account, {
-        allowManualOverride: overrideInput.checked,
-      });
-      activeFillPacket = buildEmoneyFillPacket(payload, { blockedCount: summary.blockedCount });
-      activeManualBatch = buildBatchPastePayload(payload, { blockedCount: summary.blockedCount });
-      const serializedPacket = serializeEmoneyFillPacket(activeFillPacket);
-      const copied = activeFillPacket.rowCount > 0 && await copyTextToClipboard(serializedPacket);
-      packetCopyStatus = activeFillPacket.rowCount === 0 ? 'idle' : copied ? 'copied' : 'blocked';
-      showOutput(
-        copied
-          ? buildFillPacketReport(activeFillPacket)
-          : activeFillPacket.rowCount === 0
-            ? `No eligible holdings are available for account ${activeFillPacket.accountNumber}. Blocked rows excluded: ${activeFillPacket.blockedCount}.`
-            : `${buildFillPacketReport(activeFillPacket)}\n\nClipboard copy was blocked. Manually copy this JSON fill packet:\n${serializedPacket}`,
-        {
-          summary: copied
-            ? 'Fill packet copied. Session report'
-            : activeFillPacket.rowCount === 0
-              ? 'No eligible holdings'
-              : 'Clipboard blocked. Open packet text',
-          open: !copied,
-        }
-      );
-      opts?.onExport?.(payload);
-      renderTransferPacket();
-    };
-    actions.appendChild(conductorBtn);
     accountWrap.appendChild(actions);
 
     renderSummary();
     renderRows();
+    renderTransferPacket();
     root.appendChild(accountWrap);
   });
+
+  root.appendChild(outputDetails);
 }
 
 /** Example usage:

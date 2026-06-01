@@ -25,10 +25,17 @@ export const SAMPLE_CSV_INPUT = [
   'Demo Account,123456789,Demo Client,05/26/2026,GOOG,ALPHABET INCORPORATED CAP STK CLASS C,3,$100.00,$900.00,$1200.00,US Large Cap Blend',
 ].join('\n');
 
+type WorkflowStep = 'load' | 'review' | 'packet';
+
+interface LocalMvpOptions {
+  sourceFilename?: string;
+  onPacketPrepared?: (event: { accountNumber: string; rowCount: number; copied: boolean }) => void;
+}
+
 export function runLocalMvp(
   container: HTMLElement,
   csvText: string = SAMPLE_CSV_INPUT,
-  opts?: { sourceFilename?: string }
+  opts?: LocalMvpOptions
 ): HoldingsIngestionFile {
   const ingestionFile = parseHoldingsCsvToIngestionFile(csvText, {
     fileId: `file-${new Date().toISOString()}`,
@@ -40,6 +47,7 @@ export function runLocalMvp(
       // Local visibility for operator/engineer; no network or persistence.
       console.log('Exported assistant payload:', payload);
     },
+    onPacketPrepared: opts?.onPacketPrepared,
   });
 
   return ingestionFile;
@@ -63,6 +71,23 @@ async function stageLoadStatus(status: HTMLElement, sourceName: string): Promise
   await delay(260);
 }
 
+function summarizeSessionAccount(ingestion: HoldingsIngestionFile): string {
+  if (ingestion.accounts.length === 0) return 'No account detected';
+  if (ingestion.accounts.length === 1) return ingestion.accounts[0].accountNumber;
+  return `${ingestion.accounts[0].accountNumber} + ${ingestion.accounts.length - 1} more`;
+}
+
+function renderLedgerSkeleton(container: HTMLElement, sourceName: string): void {
+  container.innerHTML = [
+    '<section class="ledger-skeleton" aria-label="Preparing local review">',
+    `  <p>Parsing ${sourceName} locally and preparing review gates...</p>`,
+    '  <span></span>',
+    '  <span></span>',
+    '  <span></span>',
+    '</section>',
+  ].join('');
+}
+
 export function renderLocalMvpShell(root: HTMLElement): void {
   installRegulatedLedgerStyles();
   root.innerHTML = '';
@@ -70,41 +95,74 @@ export function renderLocalMvpShell(root: HTMLElement): void {
   const shell = document.createElement('main');
   shell.className = 'ledger-shell';
 
-  const hero = document.createElement('section');
-  hero.className = 'ledger-hero';
+  const appHeader = document.createElement('header');
+  appHeader.className = 'ledger-app-header';
 
-  const heroCopy = document.createElement('div');
-  const kicker = document.createElement('p');
-  kicker.className = 'ledger-kicker';
-  kicker.textContent = 'Local desktop ledger';
-  heroCopy.appendChild(kicker);
-
-  const title = document.createElement('h1');
-  title.className = 'ledger-title';
-  title.textContent = 'Holdings entry, reviewed before fill.';
-  heroCopy.appendChild(title);
-
-  const subtitle = document.createElement('p');
-  subtitle.className = 'ledger-subtitle';
-  subtitle.textContent = 'Load a holdings CSV, review the export gate, then copy a local eMoney Fill Packet. The Fill Button asks for confirmation inside eMoney before adding rows. No extension, no API, no auto-save.';
-  heroCopy.appendChild(subtitle);
-  hero.appendChild(heroCopy);
-
-  const assurance = document.createElement('aside');
-  assurance.className = 'ledger-assurance';
-  assurance.innerHTML = [
-    '<strong>Operator boundary</strong>',
-    '<span>The app prepares reviewed values. The operator launches the Fill Button on the visible eMoney Holdings page. eMoney Save remains outside this tool.</span>',
+  const brand = document.createElement('div');
+  brand.className = 'ledger-brand';
+  brand.innerHTML = [
+    '<div class="ledger-mark" aria-hidden="true">H</div>',
+    '<div>',
+    '  <h1 class="ledger-title">Holdings eMoney Assistant</h1>',
+    '  <p class="ledger-subtitle">USED TO PREPARE A CONTROLLED EMONEY FILL PACKET</p>',
+    '</div>',
   ].join('');
-  hero.appendChild(assurance);
-  shell.appendChild(hero);
+  appHeader.appendChild(brand);
+
+  const headerRight = document.createElement('div');
+  headerRight.className = 'ledger-header-right';
+
+  const session = document.createElement('p');
+  session.className = 'ledger-session';
+  session.innerHTML = 'Account: Not loaded <span aria-hidden="true">&bull;</span> Session Idle <i aria-hidden="true"></i>';
+  headerRight.appendChild(session);
+
+  const badges = document.createElement('div');
+  badges.className = 'ledger-safety-badges';
+  ['LOCAL ONLY', 'NO API', 'NO BACKEND', 'Manual Save in eMoney'].forEach((label) => {
+    const badge = document.createElement('span');
+    badge.textContent = label;
+    badges.appendChild(badge);
+  });
+  headerRight.appendChild(badges);
+  appHeader.appendChild(headerRight);
+  shell.appendChild(appHeader);
+
+  const workflow = document.createElement('nav');
+  workflow.className = 'workflow-stepper';
+  workflow.setAttribute('aria-label', 'Holdings workflow');
+  const workflowSteps: Array<[WorkflowStep | 'fill', string]> = [
+    ['load', 'Load CSV'],
+    ['review', 'Review Holdings'],
+    ['packet', 'Prepare Fill Packet'],
+    ['fill', 'Fill in eMoney'],
+  ];
+  const stepEls = new Map<string, HTMLElement>();
+  workflowSteps.forEach(([key, label], index) => {
+    const step = document.createElement('span');
+    step.className = 'workflow-step';
+    step.dataset.step = key;
+    step.innerHTML = `<b>${index + 1}</b><span>${label}</span>`;
+    workflow.appendChild(step);
+    stepEls.set(key, step);
+  });
+  shell.appendChild(workflow);
+
+  const setWorkflowStep = (active: WorkflowStep) => {
+    const rank: Record<string, number> = { load: 0, review: 1, packet: 2, fill: 3 };
+    stepEls.forEach((step, key) => {
+      step.classList.toggle('is-active', key === active);
+      step.classList.toggle('is-complete', rank[key] < rank[active]);
+    });
+  };
+  setWorkflowStep('load');
 
   const controls = document.createElement('section');
   controls.className = 'ledger-panel ledger-load-panel';
 
   const controlCopy = document.createElement('div');
   const controlTitle = document.createElement('h2');
-  controlTitle.textContent = 'Load holdings CSV';
+  controlTitle.textContent = 'Load CSV';
   controlCopy.appendChild(controlTitle);
 
   const status = document.createElement('p');
@@ -115,9 +173,9 @@ export function renderLocalMvpShell(root: HTMLElement): void {
   const checks = document.createElement('div');
   checks.className = 'ledger-checks';
   [
-    ['Input', 'CSV UTF-8'],
-    ['Storage', 'None'],
-    ['Network', 'No upload'],
+    ['Current step', 'Local CSV review'],
+    ['Storage', 'No auto-save'],
+    ['Network', 'No backend'],
     ['eMoney Save', 'Manual'],
   ].forEach(([label, value]) => {
     const check = document.createElement('div');
@@ -150,13 +208,33 @@ export function renderLocalMvpShell(root: HTMLElement): void {
   reviewRoot.id = 'review-root';
   shell.appendChild(reviewRoot);
 
+  const footer = document.createElement('footer');
+  footer.className = 'ledger-footer';
+  footer.innerHTML = [
+    '<strong>LOCAL ONLY <span aria-hidden="true">&bull;</span> NO API <span aria-hidden="true">&bull;</span> NO BACKEND</strong>',
+    '<span>DESIGNED FOR FINANCIAL OPERATIONS IN 2026</span>',
+  ].join('');
+  shell.appendChild(footer);
+
+  const markSessionActive = (ingestion: HoldingsIngestionFile) => {
+    session.innerHTML = `Account: ${summarizeSessionAccount(ingestion)} <span aria-hidden="true">&bull;</span> Session Active <i aria-hidden="true"></i>`;
+    session.classList.add('is-active');
+  };
+
   fileInput.onchange = async () => {
     const file = fileInput.files?.[0];
     if (!file) return;
     try {
+      setWorkflowStep('load');
+      renderLedgerSkeleton(reviewRoot, file.name);
       await stageLoadStatus(status, file.name);
       const text = await file.text();
-      runLocalMvp(reviewRoot, text, { sourceFilename: file.name });
+      const ingestion = runLocalMvp(reviewRoot, text, {
+        sourceFilename: file.name,
+        onPacketPrepared: () => setWorkflowStep('packet'),
+      });
+      markSessionActive(ingestion);
+      setWorkflowStep('review');
       setStatus(status, `${file.name} is ready for review.`, 'success');
     } catch (err) {
       console.error(err);
@@ -165,8 +243,15 @@ export function renderLocalMvpShell(root: HTMLElement): void {
   };
 
   sampleButton.onclick = async () => {
+    setWorkflowStep('load');
+    renderLedgerSkeleton(reviewRoot, 'demo-sample.csv');
     await stageLoadStatus(status, 'demo-sample.csv');
-    runLocalMvp(reviewRoot, SAMPLE_CSV_INPUT, { sourceFilename: 'demo-sample.csv' });
+    const ingestion = runLocalMvp(reviewRoot, SAMPLE_CSV_INPUT, {
+      sourceFilename: 'demo-sample.csv',
+      onPacketPrepared: () => setWorkflowStep('packet'),
+    });
+    markSessionActive(ingestion);
+    setWorkflowStep('review');
     setStatus(status, 'Demo sample is ready for review.', 'success');
   };
 
