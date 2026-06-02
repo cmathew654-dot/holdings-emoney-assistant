@@ -124,6 +124,15 @@ export function renderLocalMvpShell(root: HTMLElement): void {
     badge.textContent = label;
     badges.appendChild(badge);
   });
+
+  const buildInfo = (window as unknown as { __BUILD_INFO__?: { sha?: string; builtAt?: string } }).__BUILD_INFO__;
+  const buildPill = document.createElement('span');
+  buildPill.className = 'build-pill';
+  buildPill.textContent = buildInfo?.sha
+    ? `Build ${buildInfo.sha}${buildInfo.builtAt ? ` · ${buildInfo.builtAt.slice(0, 10)}` : ''}`
+    : 'Build dev';
+  badges.appendChild(buildPill);
+
   headerRight.appendChild(badges);
   appHeader.appendChild(headerRight);
   shell.appendChild(appHeader);
