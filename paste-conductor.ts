@@ -176,7 +176,10 @@ const EMONEY_FILL_BUTTON_SCRIPT = `(() => {
   function isExpectedEmoneyHoldingsPage() {
     const host = normalize(location.hostname);
     const pageText = normalize((document.title || '') + ' ' + location.href + ' ' + ((document.body && document.body.innerText) || '').slice(0, 12000));
-    return host.includes('emoney') && pageText.includes('holding');
+    // eMoney's advisor portal serves on emaplan.com (legacy EMA Plan domain); emoneyadvisor.com
+    // and similar are the alternate branded hosts. Accept either family with the holdings-text guard.
+    var isEmoneyHost = host.includes('emoney') || host.includes('emaplan');
+    return isEmoneyHost && pageText.includes('holding');
   }
 
   function buttonText(el) {
