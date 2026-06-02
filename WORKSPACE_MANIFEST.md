@@ -3,7 +3,7 @@
 - `AGENTS.md` - durable repo-level operating manual for Codex threads.
 - `README.md` - engineering overview, workflow, safety model, readiness, and commands.
 - `OPERATOR_RUNBOOK.md` - safe operator usage instructions.
-- `DEMO_QUICKSTART.md` - shortest demo path for local CSV load, review, snippet copy, and manual eMoney save.
+- `DEMO_QUICKSTART.md` - shortest demo path for local CSV load, review, Fill Packet, Fill Button, and manual eMoney save.
 - `PROJECT_STATE.md` - canonical source-of-truth map for repo, branch, local folder, scope, and deferred work.
 - `ENGINEERING_HANDOFF_CHECKLIST.md` - engineer onboarding and safety checklist.
 - `FREEZE_NOTES.md` - frozen scope, deferred scope, and safe next workstreams.
@@ -11,7 +11,9 @@
 - `main.ts` - local entrypoint wiring parser to review/export surface.
 - `holdings-schema.ts` - canonical ingestion/account/holding/issue model types.
 - `holdings-csv-parser.ts` - CSV parsing, normalization, issue emission, account grouping.
-- `review-export-surface.ts` - eligibility logic, summary, and UI rendering for review/export.
+- `review-export-surface.ts` - eligibility logic, summary, and UI rendering for review/export plus Fill Packet transfer.
+- `paste-conductor.ts` - Fill Packet/bookmarklet model, manual spreadsheet paste fallback, and legacy guided step model.
+- `ledger-styles.ts` - Regulated Ledger UI styling for the local and desktop shells.
 - `emoney-browser-helper.ts` - browser helper for holdings table read/match/fill/upsert.
 - `holdings-csv-parser.test.cjs` - parser behavior tests.
 - `review-export-surface.test.cjs` - review/export behavior tests.
@@ -21,3 +23,5 @@
 - `tsconfig.test.json` - TypeScript config used in test flow.
 - `scripts/build-demo.mjs` - builds the local static demo into `demo-dist/`.
 - `scripts/serve-demo.mjs` - serves `demo-dist/` on localhost for operator demos.
+- `src-tauri/` - Windows-first Tauri/WebView2 desktop shell around the local static workflow.
+- `paste-conductor.test.cjs` - Fill Packet, bookmarklet, manual spreadsheet fallback, and legacy guided step behavior tests.

@@ -15,6 +15,7 @@
 
 import { parseHoldingsCsvToIngestionFile } from './holdings-csv-parser';
 import type { HoldingsIngestionFile } from './holdings-schema';
+import { installRegulatedLedgerStyles } from './ledger-styles';
 import { renderReviewExportSurface } from './review-export-surface';
 
 export const SAMPLE_CSV_INPUT = [
@@ -24,10 +25,17 @@ export const SAMPLE_CSV_INPUT = [
   'Demo Account,123456789,Demo Client,05/26/2026,GOOG,ALPHABET INCORPORATED CAP STK CLASS C,3,$100.00,$900.00,$1200.00,US Large Cap Blend',
 ].join('\n');
 
+type WorkflowStep = 'load' | 'review' | 'packet';
+
+interface LocalMvpOptions {
+  sourceFilename?: string;
+  onPacketPrepared?: (event: { accountNumber: string; rowCount: number; copied: boolean }) => void;
+}
+
 export function runLocalMvp(
   container: HTMLElement,
   csvText: string = SAMPLE_CSV_INPUT,
-  opts?: { sourceFilename?: string }
+  opts?: LocalMvpOptions
 ): HoldingsIngestionFile {
   const ingestionFile = parseHoldingsCsvToIngestionFile(csvText, {
     fileId: `file-${new Date().toISOString()}`,
@@ -39,71 +47,169 @@ export function runLocalMvp(
       // Local visibility for operator/engineer; no network or persistence.
       console.log('Exported assistant payload:', payload);
     },
+    onPacketPrepared: opts?.onPacketPrepared,
   });
 
   return ingestionFile;
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function setStatus(el: HTMLElement, message: string, tone: 'info' | 'success' | 'error' = 'info'): void {
   el.textContent = message;
-  el.style.color = tone === 'error' ? '#991b1b' : tone === 'success' ? '#166534' : '#334155';
+  el.style.color = tone === 'error' ? '#9f3a32' : tone === 'success' ? '#276b53' : '#746c5d';
+}
+
+async function stageLoadStatus(status: HTMLElement, sourceName: string): Promise<void> {
+  setStatus(status, `Reading ${sourceName} locally...`);
+  await delay(180);
+  setStatus(status, 'Parsing holdings and normalizing account rows...');
+  await delay(220);
+  setStatus(status, 'Running preflight gates: blocked rows, warnings, export eligibility...');
+  await delay(260);
+}
+
+function summarizeSessionAccount(ingestion: HoldingsIngestionFile): string {
+  if (ingestion.accounts.length === 0) return 'No account detected';
+  if (ingestion.accounts.length === 1) return ingestion.accounts[0].accountNumber;
+  return `${ingestion.accounts[0].accountNumber} + ${ingestion.accounts.length - 1} more`;
+}
+
+function renderLedgerSkeleton(container: HTMLElement, sourceName: string): void {
+  container.innerHTML = [
+    '<section class="ledger-skeleton" aria-label="Preparing local review">',
+    `  <p>Parsing ${sourceName} locally and preparing review gates...</p>`,
+    '  <span></span>',
+    '  <span></span>',
+    '  <span></span>',
+    '</section>',
+  ].join('');
 }
 
 export function renderLocalMvpShell(root: HTMLElement): void {
+  installRegulatedLedgerStyles();
   root.innerHTML = '';
 
   const shell = document.createElement('main');
-  shell.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-  shell.style.maxWidth = '1200px';
-  shell.style.margin = '0 auto';
-  shell.style.padding = '24px';
-  shell.style.color = '#111827';
+  shell.className = 'ledger-shell';
 
-  const title = document.createElement('h1');
-  title.textContent = 'Holdings Transformer + eMoney Entry Assistant';
-  title.style.marginBottom = '4px';
-  shell.appendChild(title);
+  const appHeader = document.createElement('header');
+  appHeader.className = 'ledger-app-header';
 
-  const subtitle = document.createElement('p');
-  subtitle.textContent = 'Local-only CSV review. Generates an eMoney fill snippet; never clicks Save.';
-  subtitle.style.marginTop = '0';
-  subtitle.style.color = '#475569';
-  shell.appendChild(subtitle);
+  const brand = document.createElement('div');
+  brand.className = 'ledger-brand';
+  brand.innerHTML = [
+    '<div class="ledger-mark" aria-hidden="true">H</div>',
+    '<div>',
+    '  <h1 class="ledger-title">Holdings eMoney Assistant</h1>',
+    '  <p class="ledger-subtitle">USED TO PREPARE A CONTROLLED EMONEY FILL PACKET</p>',
+    '</div>',
+  ].join('');
+  appHeader.appendChild(brand);
+
+  const headerRight = document.createElement('div');
+  headerRight.className = 'ledger-header-right';
+
+  const session = document.createElement('p');
+  session.className = 'ledger-session';
+  session.innerHTML = 'Account: Not loaded <span aria-hidden="true">&bull;</span> Session Idle <i aria-hidden="true"></i>';
+  headerRight.appendChild(session);
+
+  const badges = document.createElement('div');
+  badges.className = 'ledger-safety-badges';
+  ['LOCAL ONLY', 'NO API', 'NO BACKEND', 'Manual Save in eMoney'].forEach((label) => {
+    const badge = document.createElement('span');
+    badge.textContent = label;
+    badges.appendChild(badge);
+  });
+
+  const buildInfo = (window as unknown as { __BUILD_INFO__?: { sha?: string; builtAt?: string } }).__BUILD_INFO__;
+  const buildPill = document.createElement('span');
+  buildPill.className = 'build-pill';
+  buildPill.textContent = buildInfo?.sha
+    ? `Build ${buildInfo.sha}${buildInfo.builtAt ? ` · ${buildInfo.builtAt.slice(0, 10)}` : ''}`
+    : 'Build dev';
+  badges.appendChild(buildPill);
+
+  headerRight.appendChild(badges);
+  appHeader.appendChild(headerRight);
+  shell.appendChild(appHeader);
+
+  const workflow = document.createElement('nav');
+  workflow.className = 'workflow-stepper';
+  workflow.setAttribute('aria-label', 'Holdings workflow');
+  const workflowSteps: Array<[WorkflowStep | 'fill', string]> = [
+    ['load', 'Load CSV'],
+    ['review', 'Review Holdings'],
+    ['packet', 'Prepare Fill Packet'],
+    ['fill', 'Fill in eMoney'],
+  ];
+  const stepEls = new Map<string, HTMLElement>();
+  workflowSteps.forEach(([key, label], index) => {
+    const step = document.createElement('span');
+    step.className = 'workflow-step';
+    step.dataset.step = key;
+    step.innerHTML = `<b>${index + 1}</b><span>${label}</span>`;
+    workflow.appendChild(step);
+    stepEls.set(key, step);
+  });
+  shell.appendChild(workflow);
+
+  const setWorkflowStep = (active: WorkflowStep) => {
+    const rank: Record<string, number> = { load: 0, review: 1, packet: 2, fill: 3 };
+    stepEls.forEach((step, key) => {
+      step.classList.toggle('is-active', key === active);
+      step.classList.toggle('is-complete', rank[key] < rank[active]);
+    });
+  };
+  setWorkflowStep('load');
 
   const controls = document.createElement('section');
-  controls.style.border = '1px solid #cbd5e1';
-  controls.style.borderRadius = '10px';
-  controls.style.padding = '16px';
-  controls.style.margin = '16px 0';
-  controls.style.background = '#f8fafc';
+  controls.className = 'ledger-panel ledger-load-panel';
 
+  const controlCopy = document.createElement('div');
   const controlTitle = document.createElement('h2');
-  controlTitle.textContent = '1. Load holdings CSV';
-  controlTitle.style.marginTop = '0';
-  controls.appendChild(controlTitle);
+  controlTitle.textContent = 'Load CSV';
+  controlCopy.appendChild(controlTitle);
+
+  const status = document.createElement('p');
+  status.className = 'ledger-status-line';
+  status.textContent = 'No file loaded yet.';
+  controlCopy.appendChild(status);
+
+  const checks = document.createElement('div');
+  checks.className = 'ledger-checks';
+  [
+    ['Current step', 'Local CSV review'],
+    ['Storage', 'No auto-save'],
+    ['Network', 'No backend'],
+    ['eMoney Save', 'Manual'],
+  ].forEach(([label, value]) => {
+    const check = document.createElement('div');
+    check.className = 'ledger-check';
+    check.innerHTML = `<span>${label}</span><strong>${value}</strong>`;
+    checks.appendChild(check);
+  });
+  controlCopy.appendChild(checks);
+  controls.appendChild(controlCopy);
+
+  const actions = document.createElement('div');
+  actions.className = 'ledger-actions';
 
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
   fileInput.accept = '.csv,text/csv';
-  fileInput.style.marginRight = '12px';
-  controls.appendChild(fileInput);
+  fileInput.className = 'ledger-file-input';
+  actions.appendChild(fileInput);
 
   const sampleButton = document.createElement('button');
   sampleButton.type = 'button';
   sampleButton.textContent = 'Load Demo Sample';
-  sampleButton.style.marginRight = '12px';
-  controls.appendChild(sampleButton);
-
-  const status = document.createElement('p');
-  status.textContent = 'No file loaded yet.';
-  status.style.marginBottom = '0';
-  controls.appendChild(status);
-
-  const safety = document.createElement('p');
-  safety.textContent = 'Safety: CSV stays in this browser. No backend, no upload, no auto-save.';
-  safety.style.fontWeight = '600';
-  safety.style.color = '#334155';
-  controls.appendChild(safety);
+  sampleButton.className = 'ledger-button secondary';
+  actions.appendChild(sampleButton);
+  controls.appendChild(actions);
 
   shell.appendChild(controls);
 
@@ -111,24 +217,104 @@ export function renderLocalMvpShell(root: HTMLElement): void {
   reviewRoot.id = 'review-root';
   shell.appendChild(reviewRoot);
 
-  fileInput.onchange = async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
+  const footer = document.createElement('footer');
+  footer.className = 'ledger-footer';
+  footer.innerHTML = [
+    '<strong>LOCAL ONLY <span aria-hidden="true">&bull;</span> NO API <span aria-hidden="true">&bull;</span> NO BACKEND</strong>',
+    '<span>DESIGNED FOR FINANCIAL OPERATIONS IN 2026</span>',
+  ].join('');
+  shell.appendChild(footer);
+
+  const markSessionActive = (ingestion: HoldingsIngestionFile) => {
+    session.innerHTML = `Account: ${summarizeSessionAccount(ingestion)} <span aria-hidden="true">&bull;</span> Session Active <i aria-hidden="true"></i>`;
+    session.classList.add('is-active');
+  };
+
+  const loadCsvFile = async (file: File): Promise<void> => {
+    if (!/\.csv$/i.test(file.name)) {
+      setStatus(status, `Not a CSV file: ${file.name}. Save as CSV UTF-8 first.`, 'error');
+      return;
+    }
     try {
-      setStatus(status, `Loading ${file.name}...`);
+      setWorkflowStep('load');
+      renderLedgerSkeleton(reviewRoot, file.name);
+      await stageLoadStatus(status, file.name);
       const text = await file.text();
-      runLocalMvp(reviewRoot, text, { sourceFilename: file.name });
-      setStatus(status, `Loaded ${file.name}. Review eligible and blocked rows below.`, 'success');
+      const ingestion = runLocalMvp(reviewRoot, text, {
+        sourceFilename: file.name,
+        onPacketPrepared: () => setWorkflowStep('packet'),
+      });
+      markSessionActive(ingestion);
+      setWorkflowStep('review');
+      setStatus(status, `${file.name} is ready for review.`, 'success');
     } catch (err) {
       console.error(err);
       setStatus(status, `Could not load CSV: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   };
 
-  sampleButton.onclick = () => {
-    runLocalMvp(reviewRoot, SAMPLE_CSV_INPUT, { sourceFilename: 'demo-sample.csv' });
-    setStatus(status, 'Loaded built-in demo sample. Review eligible rows below.', 'success');
+  fileInput.onchange = () => {
+    const file = fileInput.files?.[0];
+    if (file) void loadCsvFile(file);
   };
+
+  sampleButton.onclick = async () => {
+    setWorkflowStep('load');
+    renderLedgerSkeleton(reviewRoot, 'demo-sample.csv');
+    await stageLoadStatus(status, 'demo-sample.csv');
+    const ingestion = runLocalMvp(reviewRoot, SAMPLE_CSV_INPUT, {
+      sourceFilename: 'demo-sample.csv',
+      onPacketPrepared: () => setWorkflowStep('packet'),
+    });
+    markSessionActive(ingestion);
+    setWorkflowStep('review');
+    setStatus(status, 'Demo sample is ready for review.', 'success');
+  };
+
+  // Drag-and-drop: drop a CSV anywhere on the window to load it.
+  const dropOverlay = document.createElement('div');
+  dropOverlay.className = 'ledger-drop-overlay';
+  dropOverlay.innerHTML = '<div class="ledger-drop-card"><strong>Drop CSV to load</strong><span>Local only · No upload</span></div>';
+  document.body.appendChild(dropOverlay);
+
+  let dragCounter = 0;
+  const isFileDrag = (e: DragEvent): boolean => {
+    const types = e.dataTransfer?.types;
+    if (!types) return false;
+    for (let i = 0; i < types.length; i++) if (types[i] === 'Files') return true;
+    return false;
+  };
+
+  document.addEventListener('dragenter', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragCounter += 1;
+    dropOverlay.classList.add('is-visible');
+  });
+
+  document.addEventListener('dragover', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+
+  document.addEventListener('dragleave', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    dragCounter -= 1;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      dropOverlay.classList.remove('is-visible');
+    }
+  });
+
+  document.addEventListener('drop', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragCounter = 0;
+    dropOverlay.classList.remove('is-visible');
+    const file = e.dataTransfer?.files[0];
+    if (file) void loadCsvFile(file);
+  });
 
   root.appendChild(shell);
 }

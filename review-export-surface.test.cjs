@@ -1,5 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 
 const {
   getHoldingEligibility,
@@ -183,4 +184,93 @@ test('buildEmoneyDevtoolsSnippet emits eligible rows as paste-ready eMoney fill 
   assert.doesNotMatch(snippet, /\$CASH\$/);
   assert.doesNotMatch(snippet, /"assetClass"|"sector"|fields\.assetClass|fields\.sector/);
   assert.doesNotMatch(snippet, /save[^\n;]*\.click/i);
+});
+
+test('bookmark install UI keeps dragged bookmark name clean', () => {
+  const source = fs.readFileSync('review-export-surface.ts', 'utf8');
+
+  assert.match(source, /<strong>Install Fill Button<\/strong>/);
+  assert.match(source, /Drag the Fill eMoney Holdings button to your browser bookmarks bar\./);
+  assert.match(source, /bookmarklet\.textContent = 'Fill eMoney Holdings'/);
+  assert.match(source, /bookmarklet\.title = 'Fill eMoney Holdings'/);
+  assert.match(source, /bookmarklet\.setAttribute\('aria-label', 'Fill eMoney Holdings'\)/);
+  assert.doesNotMatch(source, /DRAG TO BOOKMARKS BAR/);
+});
+
+test('regulated ledger shell renders the demo-ready app identity and safety badges', () => {
+  const source = fs.readFileSync('main.ts', 'utf8');
+
+  assert.match(source, /Holdings eMoney Assistant/);
+  assert.match(source, /USED TO PREPARE A CONTROLLED EMONEY FILL PACKET/);
+  assert.match(source, /Account:/);
+  assert.match(source, /Session Active/);
+  assert.match(source, /LOCAL ONLY/);
+  assert.match(source, /NO API/);
+  assert.match(source, /NO BACKEND/);
+  assert.match(source, /Manual Save in eMoney/);
+});
+
+test('regulated ledger shell exposes the four-step workflow and trust footer', () => {
+  const source = fs.readFileSync('main.ts', 'utf8');
+
+  assert.match(source, /Load CSV/);
+  assert.match(source, /Review Holdings/);
+  assert.match(source, /Prepare Fill Packet/);
+  assert.match(source, /Fill in eMoney/);
+  assert.match(source, /LOCAL ONLY.*NO API.*NO BACKEND/s);
+  assert.match(source, /DESIGNED FOR FINANCIAL OPERATIONS IN 2026/);
+});
+
+test('review surface renders sticky preflight and reconciliation-only market value labeling', () => {
+  const source = fs.readFileSync('review-export-surface.ts', 'utf8');
+
+  assert.match(source, /preflight-summary/);
+  assert.match(source, /Eligible rows/);
+  assert.match(source, /Blocked rows/);
+  assert.match(source, /Warnings/);
+  assert.match(source, /Account number/);
+  assert.match(source, /Market Value[\s\S]*reconciliation only/);
+});
+
+test('transfer rail makes included and excluded packet fields explicit', () => {
+  const source = fs.readFileSync('review-export-surface.ts', 'utf8');
+
+  assert.match(source, /Transfer Packet/);
+  assert.match(source, /browser bookmarklet on the visible eMoney Holdings page/);
+  assert.match(source, /Ticker/);
+  assert.match(source, /Units/);
+  assert.match(source, /Cost Basis/);
+  assert.match(source, /Market Value/);
+  assert.match(source, /Asset Class/);
+  assert.match(source, /Sector/);
+  assert.match(source, /Save remains manual/);
+  assert.match(source, /Packet copied to clipboard/);
+});
+
+test('operator-facing UI keeps DevTools out of the primary flow', () => {
+  const source = fs.readFileSync('review-export-surface.ts', 'utf8');
+
+  assert.doesNotMatch(source, /Paste this into Chrome\/Edge DevTools/);
+  assert.doesNotMatch(source, /Copy eMoney DevTools snippet/);
+});
+
+test('regulated ledger styles include motion, focus, sticky summary, and responsive rail polish', () => {
+  const source = fs.readFileSync('ledger-styles.ts', 'utf8');
+
+  assert.match(source, /workflow-step\.is-active/);
+  assert.match(source, /@keyframes stepPulse/);
+  assert.match(source, /prefers-reduced-motion/);
+  assert.match(source, /position: sticky/);
+  assert.match(source, /focus-visible/);
+  assert.match(source, /transfer-rail/);
+  assert.match(source, /bookmarklet-link:hover/);
+  assert.match(source, /ledger-skeleton/);
+});
+
+test('desktop package version is bumped for bookmark label cleanup', () => {
+  assert.match(fs.readFileSync('src-tauri/tauri.conf.json', 'utf8'), /"version": "0\.1\.3"/);
+  assert.match(fs.readFileSync('src-tauri/Cargo.toml', 'utf8'), /version = "0\.1\.3"/);
+
+  const lock = fs.readFileSync('src-tauri/Cargo.lock', 'utf8');
+  assert.match(lock, /name = "holdings-emoney-assistant"\r?\nversion = "0\.1\.3"/);
 });
