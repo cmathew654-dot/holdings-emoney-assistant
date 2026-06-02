@@ -257,7 +257,13 @@ const EMONEY_FILL_BUTTON_SCRIPT = `(() => {
   }
 
   function parsePacketText(text) {
-    return validatePacket(JSON.parse(text));
+    let raw;
+    try {
+      raw = JSON.parse(text);
+    } catch (parseErr) {
+      throw new Error('Clipboard did not contain a Fill Packet. Copy a fresh packet from the desktop app, then click Read Clipboard again.');
+    }
+    return validatePacket(raw);
   }
 
   function ensureOverlay() {
@@ -265,7 +271,7 @@ const EMONEY_FILL_BUTTON_SCRIPT = `(() => {
     if (existing) existing.remove();
 
     const style = document.createElement('style');
-    style.textContent = '#' + OVERLAY_ID + '{position:fixed;right:24px;top:24px;z-index:2147483647;width:420px;max-width:calc(100vw - 48px);font:14px/1.45 Georgia,serif;color:#1f2a2a;background:#fbfaf4;border:1px solid #1f2a2a;box-shadow:0 24px 70px rgba(0,0,0,.28);padding:18px}#' + OVERLAY_ID + ' h2{font:700 20px/1.1 Georgia,serif;margin:0 0 10px}#' + OVERLAY_ID + ' p{margin:8px 0}#' + OVERLAY_ID + ' textarea{width:100%;height:120px;margin:10px 0;font:12px Consolas,monospace}#' + OVERLAY_ID + ' button{margin:8px 8px 0 0;border:1px solid #1f2a2a;background:#1f2a2a;color:#fff;padding:8px 10px;font:700 12px Arial,sans-serif;cursor:pointer}#' + OVERLAY_ID + ' button.secondary{background:#fbfaf4;color:#1f2a2a}#' + OVERLAY_ID + ' button:disabled{opacity:.45;cursor:not-allowed}#' + OVERLAY_ID + ' .bad{color:#9b1c1c;font-weight:700}#' + OVERLAY_ID + ' .ok{color:#17623a;font-weight:700}#' + OVERLAY_ID + ' .meta{border-top:1px solid #d8d0bf;border-bottom:1px solid #d8d0bf;padding:8px 0;margin:10px 0}';
+    style.textContent = '#' + OVERLAY_ID + '{position:fixed;right:16px;top:16px;z-index:2147483647;width:380px;max-width:calc(100vw - 32px);background:#fafafd;border:1px solid #d6dae2;border-radius:6px;box-shadow:0 8px 24px rgba(20,28,40,.12),0 2px 4px rgba(20,28,40,.06);padding:16px;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.5;color:#1d1f25}#' + OVERLAY_ID + ' h2{font-family:"Segoe UI Variable Display","Segoe UI Variable","Segoe UI",system-ui,sans-serif;font-size:15px;font-weight:600;letter-spacing:-0.005em;margin:0 0 10px;color:#1d1f25}#' + OVERLAY_ID + ' p{margin:6px 0;font-size:13px}#' + OVERLAY_ID + ' textarea{width:100%;height:96px;margin:8px 0;font-family:"Cascadia Code","Cascadia Mono","Consolas",ui-monospace,monospace;font-size:11.5px;padding:8px;border:1px solid #d6dae2;border-radius:4px;background:#ffffff;color:#1d1f25;resize:vertical}#' + OVERLAY_ID + ' textarea:focus{outline:2px solid #3450b8;outline-offset:1px;border-color:#3450b8}#' + OVERLAY_ID + ' button{margin:8px 6px 0 0;padding:6px 12px;border:1px solid #3450b8;background:#3450b8;color:#fff;border-radius:4px;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;font-size:13px;font-weight:600;line-height:1.2;cursor:pointer;transition:background 120ms cubic-bezier(.22,1,.36,1),border-color 120ms}#' + OVERLAY_ID + ' button:hover{background:#2a3f99;border-color:#2a3f99}#' + OVERLAY_ID + ' button:focus-visible{outline:2px solid #3450b8;outline-offset:2px}#' + OVERLAY_ID + ' button.secondary{background:#fafafd;color:#1d1f25;border-color:#b2bac9}#' + OVERLAY_ID + ' button.secondary:hover{background:#eef0f5;border-color:#8b94a8}#' + OVERLAY_ID + ' button:disabled{opacity:.5;background:#eef0f5;border-color:#d6dae2;color:#8b94a8;cursor:not-allowed}#' + OVERLAY_ID + ' .bad{color:#a13b2e;font-weight:600}#' + OVERLAY_ID + ' .ok{color:#2e7d4f;font-weight:600}#' + OVERLAY_ID + ' .meta{border-top:1px solid #d6dae2;border-bottom:1px solid #d6dae2;padding:10px 0;margin:10px 0;font-family:"Cascadia Code","Cascadia Mono","Consolas",ui-monospace,monospace;font-size:11.5px;line-height:1.55;color:#1d1f25}#' + OVERLAY_ID + ' .meta strong{font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;color:#595e6c;font-weight:500}#' + OVERLAY_ID + ' .footer{margin-top:12px;padding-top:10px;border-top:1px solid #d6dae2;color:#595e6c;font-size:12px}';
     document.head.appendChild(style);
 
     const overlay = document.createElement('section');
@@ -312,8 +318,9 @@ const EMONEY_FILL_BUTTON_SCRIPT = `(() => {
 
   async function loadClipboardPacket() {
     try {
-      if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('Clipboard read is unavailable.');
+      if (!navigator.clipboard || !navigator.clipboard.readText) throw new Error('Chrome blocked clipboard read on this page. Paste the packet manually below.');
       const text = await navigator.clipboard.readText();
+      if (!text || !text.trim()) throw new Error('Clipboard is empty. Copy a fresh packet from the desktop app, then click Read Clipboard.');
       state.packet = parsePacketText(text);
       state.status = 'Packet ready. Confirm this is the correct eMoney Holdings page for account ' + state.packet.accountNumber + '.';
       updateOverlay();
@@ -322,7 +329,7 @@ const EMONEY_FILL_BUTTON_SCRIPT = `(() => {
       const usePaste = document.getElementById('emfb-use-paste');
       if (paste) paste.hidden = false;
       if (usePaste) usePaste.hidden = false;
-      setError((err && err.message ? err.message : String(err)) + ' Paste packet manually if Chrome blocks clipboard access.');
+      setError(err && err.message ? err.message : String(err));
     }
   }
 
