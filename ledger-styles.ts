@@ -1254,6 +1254,51 @@ export function installRegulatedLedgerStyles(): void {
       letter-spacing: 0.04em;
     }
 
+    /* ── Drag-and-drop overlay ────────────────────────────────────────── */
+
+    .ledger-drop-overlay {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: oklch(0.20 0.012 250 / 0.42);
+      z-index: 100;
+      pointer-events: none;
+      backdrop-filter: blur(2px);
+    }
+
+    .ledger-drop-overlay.is-visible {
+      display: flex;
+    }
+
+    .ledger-drop-card {
+      display: grid;
+      gap: var(--s-2);
+      padding: var(--s-6) var(--s-8);
+      background: var(--surface);
+      border: 2px dashed var(--accent);
+      border-radius: var(--r-lg);
+      text-align: center;
+      box-shadow: 0 12px 32px rgba(20, 28, 40, 0.18);
+    }
+
+    .ledger-drop-card strong {
+      font-family: var(--sans);
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.005em;
+    }
+
+    .ledger-drop-card span {
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--ink-soft);
+    }
+
     /* ── Focus, reduced motion ────────────────────────────────────────── */
 
     :focus-visible {

@@ -386,8 +386,9 @@ const EMONEY_FILL_BUTTON_SCRIPT = `(() => {
   overlay.querySelector('#emfb-use-paste').addEventListener('click', loadPastedPacket);
   overlay.querySelector('#emfb-confirm').addEventListener('click', fillRows);
   overlay.querySelector('#emfb-close').addEventListener('click', () => overlay.remove());
-  state.status = 'Ready. Click Read Clipboard, or paste packet manually if Chrome blocks clipboard access.';
+  state.status = 'Reading clipboard...';
   updateOverlay();
+  loadClipboardPacket();
 })();`;
 
 export function buildEmoneyFillButtonScript(): string {

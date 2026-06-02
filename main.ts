@@ -230,9 +230,11 @@ export function renderLocalMvpShell(root: HTMLElement): void {
     session.classList.add('is-active');
   };
 
-  fileInput.onchange = async () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
+  const loadCsvFile = async (file: File): Promise<void> => {
+    if (!/\.csv$/i.test(file.name)) {
+      setStatus(status, `Not a CSV file: ${file.name}. Save as CSV UTF-8 first.`, 'error');
+      return;
+    }
     try {
       setWorkflowStep('load');
       renderLedgerSkeleton(reviewRoot, file.name);
@@ -251,6 +253,11 @@ export function renderLocalMvpShell(root: HTMLElement): void {
     }
   };
 
+  fileInput.onchange = () => {
+    const file = fileInput.files?.[0];
+    if (file) void loadCsvFile(file);
+  };
+
   sampleButton.onclick = async () => {
     setWorkflowStep('load');
     renderLedgerSkeleton(reviewRoot, 'demo-sample.csv');
@@ -263,6 +270,51 @@ export function renderLocalMvpShell(root: HTMLElement): void {
     setWorkflowStep('review');
     setStatus(status, 'Demo sample is ready for review.', 'success');
   };
+
+  // Drag-and-drop: drop a CSV anywhere on the window to load it.
+  const dropOverlay = document.createElement('div');
+  dropOverlay.className = 'ledger-drop-overlay';
+  dropOverlay.innerHTML = '<div class="ledger-drop-card"><strong>Drop CSV to load</strong><span>Local only · No upload</span></div>';
+  document.body.appendChild(dropOverlay);
+
+  let dragCounter = 0;
+  const isFileDrag = (e: DragEvent): boolean => {
+    const types = e.dataTransfer?.types;
+    if (!types) return false;
+    for (let i = 0; i < types.length; i++) if (types[i] === 'Files') return true;
+    return false;
+  };
+
+  document.addEventListener('dragenter', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragCounter += 1;
+    dropOverlay.classList.add('is-visible');
+  });
+
+  document.addEventListener('dragover', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+  });
+
+  document.addEventListener('dragleave', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    dragCounter -= 1;
+    if (dragCounter <= 0) {
+      dragCounter = 0;
+      dropOverlay.classList.remove('is-visible');
+    }
+  });
+
+  document.addEventListener('drop', (e: DragEvent) => {
+    if (!isFileDrag(e)) return;
+    e.preventDefault();
+    dragCounter = 0;
+    dropOverlay.classList.remove('is-visible');
+    const file = e.dataTransfer?.files[0];
+    if (file) void loadCsvFile(file);
+  });
 
   root.appendChild(shell);
 }
